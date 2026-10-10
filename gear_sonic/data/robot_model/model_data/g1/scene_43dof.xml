@@ -1,0 +1,71 @@
+<mujoco model="g1_43dof scene">
+  <include file="g1_29dof_with_hand.xml"/>
+  <!-- Note that the hand model in g1_29dof_with_hand.xml is not stable for simulation. -->
+
+  <statistic center="0 0 0.5" extent="2.0"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-130" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <texture name="pickup_table_texture" type="2d" builtin="checker"
+             rgb1="0.55 0.24 0.07" rgb2="0.75 0.36 0.10" width="256" height="256"/>
+    <material name="pickup_table_material" texture="pickup_table_texture"
+              texuniform="true" texrepeat="3 3"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+    <!-- Keep the diagnostic marker hidden so it cannot be mistaken for an object. -->
+    <site name="com_marker" pos="0.1 0 0" size="0.05" rgba="1 0 0 0" type="sphere"/>
+
+    <!-- Layout estimated from checkpoint example videos; original scene unavailable.
+         +X is forward and -Y is the robot's right side. Tabletop is at 0.70 m. -->
+    <body name="pickup_table" pos="0.50 0 0">
+      <geom name="pickup_table_top" type="box" pos="0 0 0.675"
+            size="0.25 0.45 0.025" material="pickup_table_material"/>
+      <geom name="pickup_table_leg_1" type="box" pos="-0.21 -0.41 0.325"
+            size="0.025 0.025 0.325" rgba="0.55 0.24 0.07 1"/>
+      <geom name="pickup_table_leg_2" type="box" pos="-0.21 0.41 0.325"
+            size="0.025 0.025 0.325" rgba="0.55 0.24 0.07 1"/>
+      <geom name="pickup_table_leg_3" type="box" pos="0.21 -0.41 0.325"
+            size="0.025 0.025 0.325" rgba="0.55 0.24 0.07 1"/>
+      <geom name="pickup_table_leg_4" type="box" pos="0.21 0.41 0.325"
+            size="0.025 0.025 0.325" rgba="0.55 0.24 0.07 1"/>
+    </body>
+
+    <!-- Append object joints after the robot to preserve SDK joint indexing.
+         A free body allows a physical grasp; there is no attachment to the hand. -->
+    <!-- Move the bottle 5 cm closer to the robot along the forward axis. -->
+    <body name="red_bottle" pos="0.43 -0.11 0.801">
+      <freejoint name="red_bottle_free_joint"/>
+      <geom name="red_bottle_body" type="cylinder" size="0.025 0.10"
+            mass="0.065" rgba="0.05 0.48 0.8 1"
+            condim="4" friction="1.2 0.01 0.001"/>
+      <!-- Blue/cyan bottle matches the sample; legacy names retained. -->
+      <geom name="bottle_label" type="cylinder" pos="0 0 0.025"
+            size="0.0253 0.035" mass="0" contype="0" conaffinity="0"
+            rgba="0.5 0.85 0.9 1"/>
+      <geom name="bottle_shoulder" type="ellipsoid" pos="0 0 0.10"
+            size="0.025 0.025 0.023" mass="0.005" rgba="0.4 0.8 0.85 1"
+            condim="4" friction="1.2 0.01 0.001"/>
+      <geom name="red_bottle_neck" type="cylinder" pos="0 0 0.125"
+            size="0.012 0.018" mass="0.005" rgba="0.65 0.9 0.9 1"
+            condim="4" friction="1.2 0.01 0.001"/>
+      <geom name="red_bottle_cap" type="cylinder" pos="0 0 0.151"
+            size="0.014 0.008" mass="0.005" rgba="0.02 0.02 0.02 1"/>
+    </body>
+  </worldbody>
+
+  <default>
+    <geom friction="1.0"/>
+  </default>
+</mujoco>

@@ -1,0 +1,2 @@
+** -filter -diff -merge
+docs/source/tutorials/WSL_BLUE_BOTTLE_COMPLETE_GUIDE.md whitespace=-blank-at-eol
