@@ -7,21 +7,18 @@ Original licensing/attribution files are preserved. No Git LFS/history/model bin
 
 ## Setup
 
-Clone this repository to `~/projects/GR00T-WholeBodyControl` so relative paths
+Clone this repository to `~/projects/g1-pickup-bottle-simulation` so relative paths
 match the setup guide. Clone Isaac-GR00T beside it.
 
 ```bash
-git clone https://github.com/quyhuyhp123/g1-pickup-bottle-simulation.git ~/projects/GR00T-WholeBodyControl
-cd ~/projects/GR00T-WholeBodyControl
+git clone https://github.com/quyhuyhp123/g1-pickup-bottle-simulation.git ~/projects/g1-pickup-bottle-simulation
+cd ~/projects/g1-pickup-bottle-simulation
 python3 install_scripts/download_runtime_assets.py
 ```
 
-Read [the complete WSL guide](docs/source/tutorials/WSL_BLUE_BOTTLE_COMPLETE_GUIDE.md)
-for WSL/CUDA/TensorRT, Python environments, Isaac-GR00T and model downloads.
-**For this repository, skip guide sections 3–4 that clone/patch WBC upstream:**
-the WBC code is already patched. Download runtime assets using the command above
-instead of WBC `git lfs pull`. Still clone Isaac-GR00T at the pinned revision and
-apply only its `gr00t` BF16 patch from the guide; do not apply the WBC patch twice.
+Read [the setup guide for this repository](docs/source/tutorials/RUN_FROM_PERSONAL_REPOSITORY.md)
+for WSL, runtime assets, CUDA/TensorRT, Python environments, models and operation.
+It includes the pinned Isaac-GR00T clone and BF16 patch; WBC code is already modified.
 
 Download SONIC models with `download_from_hf.py`, GR00T v10 using the guide,
 and YOLO using `install_scripts/install_bottle_detector.sh`.
