@@ -1,4 +1,4 @@
-"""Opt-in visual pickup correction for the simulated right arm and Dex3 hand.
+"""Opt-in visual pickup correction for the simulated right arm and Dex3/Inspire hand.
 
 SONIC retains the floating base, legs and left arm. This controller only
 sets joint torques; it never attaches, teleports or applies a force to the bottle.
@@ -36,8 +36,13 @@ class AssistedPickup:
         self.arm = np.array([m.joint('waist_pitch_joint').id] + [m.joint('right_' + name + '_joint').id for name in
             ('shoulder_pitch', 'shoulder_roll', 'shoulder_yaw', 'elbow',
              'wrist_roll', 'wrist_pitch', 'wrist_yaw')])
-        self.hand = np.array([m.joint('right_hand_' + name + '_joint').id for name in
-            ('thumb_0', 'thumb_1', 'thumb_2', 'middle_0', 'middle_1', 'index_0', 'index_1')])
+        self.native_inspire = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, 'right_thumb_1_joint') >= 0
+        if self.native_inspire:
+            from gear_sonic.scripts.prepare_inspire_ftp_sim import HAND_NAMES
+            self.hand = np.array([m.joint('right_'+n+'_joint').id for n in HAND_NAMES])
+        else:
+            self.hand = np.array([m.joint('right_hand_' + name + '_joint').id for name in
+                ('thumb_0', 'thumb_1', 'thumb_2', 'middle_0', 'middle_1', 'index_0', 'index_1')])
         self.arm_q, self.arm_v = m.jnt_qposadr[self.arm], m.jnt_dofadr[self.arm]
         self.hand_q, self.hand_v = m.jnt_qposadr[self.hand], m.jnt_dofadr[self.hand]
         self.site = m.site('right_hand_grasp_center').id
@@ -49,6 +54,13 @@ class AssistedPickup:
         self.scratch = mujoco.MjData(m)
         self.jp, self.jr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
         self.closed = np.array([0., -.7, -.7, 1., 1.5, 1., 1.5])
+        if self.native_inspire:
+            # Opposition stays preshaped during release; flexion must hold the
+            # bottle for long waits, not only the first few seconds after lift.
+            self.closed = np.array([1.0, .5, .95, .95, .95, .95])
+        self.opened = np.zeros(len(self.hand))
+        if self.native_inspire:
+            self.opened[0] = 1.0
         self.lower = m.jnt_range[self.arm, 0].copy() + .002
         self.upper = m.jnt_range[self.arm, 1].copy() - .002
         # Keep the right upper arm outside the torso. The redundant 8-DOF IK
@@ -75,6 +87,7 @@ class AssistedPickup:
         self.fraction = 0.
         self.placed = False
         self.place_xy = None
+        self.lost_grasp_since = None
 
     def lower_to_table(self, data, xy=None):
         if not self.active or self.stage != 'success':
@@ -129,7 +142,7 @@ class AssistedPickup:
         self.active = True
         self.arm_target = data.qpos[self.arm_q].copy()
         self.home_arm_q = self.arm_target.copy()
-        self.hand_target = np.zeros(7)
+        self.hand_target = self.opened.copy()
         self.start_pos = data.site_xpos[self.site].copy()
         self.start_rot = data.xmat[self.wrist].reshape(3, 3).copy()
         self.set_stage('detecting', data.time)
@@ -144,7 +157,8 @@ class AssistedPickup:
             a, b = self.model.geom_bodyid[[contact.geom1, contact.geom2]]
             if a == self.bottle or b == self.bottle:
                 name = self.model.body(int(b if a == self.bottle else a)).name
-                if name.startswith('right_hand_'):
+                if name.startswith('right_hand_') or (self.native_inspire and name.startswith(
+                        ('right_thumb', 'right_index', 'right_middle', 'right_ring', 'right_little'))):
                     names.add(name)
         return sorted(names)
 
@@ -244,7 +258,7 @@ class AssistedPickup:
             # once the bottle is inside the grasp region. Closing fully while
             # still advancing makes the index finger sweep the bottle away.
             self.fraction = float(.05 * advance + .95 * np.clip((elapsed - 1.5) / 1.5, 0., 1.))
-            self.hand_target = self.closed * self.fraction
+            self.hand_target = self.opened + (self.closed - self.opened) * self.fraction
             if elapsed > 3.5 and opposed:
                 self.table_arm_q = self.arm_target.copy()
                 self.set_stage('lift', data.time)
@@ -286,8 +300,14 @@ class AssistedPickup:
             else:
                 position = self.release_pos.copy()
                 rotation = self.release_rot.copy()
+                if self.native_inspire:
+                    # Uncurling FTP fingers extend forward. Withdraw the palm
+                    # as they clear the supported bottle instead of sweeping it.
+                    clearance = float(np.clip((elapsed - .5) / 1.5, 0., 1.))
+                    clearance = clearance*clearance*(3.-2.*clearance)
+                    position += np.array([-.05, -.02, 0.]) * clearance
                 self.fraction = float(1. - np.clip(elapsed / 2., 0., 1.)) if self.stage == 'release' else 0.
-                self.hand_target = self.closed * self.fraction
+                self.hand_target = self.opened + (self.closed - self.opened) * self.fraction
                 if self.stage == 'release' and elapsed > 3.:
                     upright = data.xmat[self.bottle].reshape(3, 3)[2, 2] > .95
                     self.placed = bool(self.table_support(data) and upright
@@ -297,7 +317,8 @@ class AssistedPickup:
                     self.set_stage('retreat' if self.placed else 'failed', data.time)
         elif self.stage == 'retreat':
             t = np.clip(elapsed / 2., 0., 1.)
-            position = self.release_pos + np.array([-.09, 0., .025]) * t*t*(3.-2.*t)
+            release_offset = np.array([-.05, -.02, 0.]) if self.native_inspire else np.zeros(3)
+            position = self.release_pos + release_offset + np.array([-.09, 0., .025]) * t*t*(3.-2.*t)
             rotation = self.release_rot.copy()
             self.solve(data, position, rotation)
             if elapsed > 3.:
@@ -325,6 +346,16 @@ class AssistedPickup:
                 lift = float(data.xpos[self.bottle, 2] - self.centre_height)
                 self.min_hold_lift = min(self.min_hold_lift, lift)
                 self.hold_contacts &= opposed
+                if self.stage == 'success':
+                    if lift < .12 or not opposed:
+                        if self.lost_grasp_since is None:
+                            self.lost_grasp_since = float(data.time)
+                        elif data.time - self.lost_grasp_since > .3:
+                            self.success = False
+                            self.error = 'Bottle slipped from grasp; placement cancelled. Reset to retry.'
+                            self.set_stage('failed', data.time)
+                    else:
+                        self.lost_grasp_since = None
                 if self.stage == 'hold' and elapsed > 3.:
                     self.success = bool(self.min_hold_lift > .12 and self.hold_contacts)
                     if not self.success:
@@ -338,11 +369,11 @@ class AssistedPickup:
         indices = [int(np.flatnonzero(body_joint_indices == joint)[0]) for joint in self.arm]
         body[indices] = (80. * (self.arm_target - data.qpos[self.arm_q])
                          - 3. * data.qvel[self.arm_v] + data.qfrc_bias[self.arm_v])
-        hand[7:] = (8. * (self.hand_target - data.qpos[self.hand_q])
+        hand[len(self.hand):] = (8. * (self.hand_target - data.qpos[self.hand_q])
                     - .2 * data.qvel[self.hand_v] + data.qfrc_bias[self.hand_v])
 
     def snapshot(self):
-        return {'stage': self.stage, 'active': self.active, 'success': self.success, 'placed': self.placed,
+        return {'hand_model': 'inspire_ftp' if self.native_inspire else 'dex3', 'stage': self.stage, 'active': self.active, 'success': self.success, 'placed': self.placed,
                 'place_target_xy_m': self.place_xy.tolist() if self.place_xy is not None else None,
                 'target_source': 'YOLO RGB-D surface + known radius and tabletop height',
                 'target_center_world_m': self.target.tolist() if self.target is not None else None,

@@ -36,7 +36,10 @@ class SimWrapper:
 def main(config: ArgsConfig):
     if not 0 <= config.sim_grasp_distance <= .1 or not 0 <= config.sim_grasp_x_tolerance <= .02:
         raise ValueError("Invalid simulation grasp Y gap or X tolerance")
+    if config.record_dir and (not config.assisted_pickup or not 0 < config.record_fps <= 60):
+        raise ValueError('Recording requires assisted pickup and FPS in 1..60')
     wbc_config = config.load_wbc_yaml()
+    wbc_config.update(RECORD_DIR=config.record_dir, RECORD_PROMPT=config.record_prompt, RECORD_FPS=config.record_fps)
     # NOTE: we will override the interface to local if it is not specified
     wbc_config["ENV_NAME"] = config.env_name
     wbc_config["REACH_DIAGNOSTIC_PATH"] = config.reach_diagnostic_path
@@ -53,10 +56,18 @@ def main(config: ArgsConfig):
     if config.fixed_pickup_base and not config.assisted_pickup:
         raise ValueError("Fixed pickup base requires assisted pickup")
     wbc_config["FIXED_PICKUP_BASE"] = config.fixed_pickup_base
+    if config.native_inspire:
+        if not config.fixed_pickup_base or not config.assisted_pickup:
+            raise ValueError('Native Inspire requires --assisted-pickup --fixed-pickup-base')
+        wbc_config.update(NATIVE_INSPIRE=True, NUM_HAND_JOINTS=6, NUM_HAND_MOTORS=0, ASYNC_IMAGE_RENDER=True,
+            ROBOT_SCENE='models/g1_inspire_ftp/g1_inspire_ftp_pickup.xml')
     wbc_config["BOTTLE_XY"] = config.bottle_xy
     wbc_config["GROUND_START"] = config.ground_start
     wbc_config["ENABLE_DEPTH_PUBLISH"] = config.enable_depth_publish
     wbc_config["BOTTLE_DETECTION_PORT"] = config.bottle_detection_port
+    wbc_config['POLICY_CONTROL'] = config.policy_control
+    from gear_sonic.utils.inference.policy_control import validate_policy_simulation
+    validate_policy_simulation(wbc_config)
 
     if config.enable_image_publish:
         assert (

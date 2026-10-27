@@ -1,4 +1,5 @@
-** -filter -diff -merge
+# Disable inherited LFS filters while keeping automatic text diffs and merges.
+** -filter
 docs/source/tutorials/WSL_BLUE_BOTTLE_COMPLETE_GUIDE.md whitespace=-blank-at-eol
 docs/source/tutorials/huong_dan_chinh_sua/*.md diff whitespace=-blank-at-eol
 docs/source/tutorials/WSL_UPSTREAM_V10_SETUP.md diff

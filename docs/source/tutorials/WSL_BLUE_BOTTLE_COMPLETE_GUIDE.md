@@ -1,3 +1,2304 @@
+# G1 gắp chai — hướng dẫn và tổng hợp thay đổi trong một file
+
+Tài liệu chính duy nhất cho phần tùy biến gắp/nâng/đặt chai, bàn tay Inspire và
+cài đặt repository cá nhân. Nội dung từ 5 tài liệu riêng đã được gom vào đây.
+Các tài liệu teleop gốc của dự án vẫn giữ riêng vì thuộc chức năng khác.
+Các file Python/C++/XML vẫn phải tồn tại đúng vị trí để simulation chạy;
+phụ lục code trong Markdown là bản ghi để xem/chia sẻ, không thay thế source.
+
+## Điều khiển khớp thủ công Dex3 — 24/10/2026
+
+Chạy một simulation riêng để chỉnh từng khớp bằng phím hoặc nút bấm:
+
+```bash
+cd ~/projects/GR00T-WholeBodyControl
+.venv_sim/bin/python gear_sonic/scripts/run_manual_joint_control.py
+```
+
+Không cần server GR00T, SONIC hoặc DDS. Cửa sổ này không kết nối robot thật và
+không điều khiển cửa sổ simulation đã mở bằng `launch_inference.py`. Nên đóng
+cửa sổ cũ để tránh nhầm. Model/XML trên đĩa không bị thay đổi.
+
+| Phím | Tác vụ |
+| --- | --- |
+| `1` / `2` | Chọn tay trái / phải |
+| `3` / `4` | Chọn chân trái / phải (6 khớp mỗi chân) |
+| `5` | Chọn eo/thân (yaw, roll, pitch) |
+| `←` / `→` | Chọn khớp trước / tiếp theo trong nhóm |
+| `↑` / `↓` | Tăng / giảm góc đích theo Step |
+| `H` | Khôi phục ngay toàn bộ 43 khớp và giữ tư thế ban đầu |
+| `Esc` | Dừng và đóng cả bảng điều khiển lẫn viewer |
+
+Trong cửa sổ 3D, **click trái một lần vào bộ phận tay, chân hoặc thân** để chọn khớp của đốt đó.
+Đốt được chọn chuyển xanh lá; đốt trước trở lại màu gốc. Dùng ↑/↓ hoặc nút
+Increase/Decrease để chỉnh đúng khớp đang chọn. Không di chuyển cả cánh tay như
+một khối: mỗi đốt cánh tay/ngón có khớp riêng trong model. Đốt con vẫn chuyển
+động theo khớp cha đúng cấu trúc vật lý của robot.
+
+Chuột phải kéo để xoay camera, con lăn để zoom, nút giữa kéo để di chuyển camera.
+Phóng to trước khi click từng đốt ngón nhỏ. Click bàn/chai/nền không đổi khớp.
+Các khớp bị che bởi vỏ hoặc link khác có thể chọn qua bảng hoặc ←/→; lựa chọn
+qua bảng cũng tô xanh phần tương ứng. Không thay đổi topology hoặc collision
+của model, chỉ thay màu hiển thị trong bộ nhớ.
+
+Mỗi tay gồm 7 khớp cánh tay và 7 khớp Dex3. Mỗi chân có 6 khớp
+hông/gối/cổ chân, eo có 3 khớp yaw/roll/pitch; tổng cộng 43 khớp. Click một dòng trong bảng để chọn
+khớp; bảng cập nhật góc thực tế, góc đích và giới hạn theo độ. Có nút tương ứng
+cho mọi phím tắt. `Step` cho phép 0,1–10 độ, mặc định 2 độ. Nhập `Target` rồi
+bấm `Apply target` hoặc Enter để đặt góc; góc được chặn trong giới hạn MJCF.
+Trong lúc nhập số, các phím mũi tên/1–5/H chỉ phục vụ ô nhập, không phát lệnh tay;
+Esc vẫn dừng chương trình. Click bảng để dùng lại phím tắt.
+
+Chỉ base tự do (vị trí và hướng pelvis) được khóa bằng ràng buộc trạng thái
+simulation để robot không ngã khi chỉnh chân. Tay, ngón, chân và eo dùng PD
++ bù mômen bias; góc đích trung gian giới hạn 30 độ/giây. Chai và
+bàn vẫn có va chạm vật lý. Đây là công cụ chỉnh tư thế có thân cố định, không
+phải thử nghiệm cân bằng SONIC hoặc tự gắp chai bằng VLA. `H` khôi phục trực tiếp góc thực tế, góc đích và setpoint của toàn bộ robot,
+xóa vận tốc/lệnh cũ rồi giữ tư thế cho đến khi bạn chỉnh góc tiếp;
+không dựng lại chai. Đóng rồi mở lại chương trình để reset toàn bộ scene.
+
+Source: `gear_sonic/scripts/run_manual_joint_control.py`.
+Test: `.venv_sim/bin/python -m unittest gear_sonic.tests.test_manual_joint_control -v`.
+Sáu kiểm thử kiểm tra chọn nhóm/khớp, chọn link và tô xanh, giới hạn, Home,
+giới hạn tốc độ setpoint, chuyển động tay/chân/eo, khóa base, vật lý chai và
+callback camera với MuJoCo đang cài.
+Chưa có chức năng ghi dataset ở chế độ này.
+
+Để giảm lag trên WSLg, cửa sổ điều khiển thủ công tắt bóng đổ, phản chiếu,
+skybox và sương mù; các thiết lập này không thay đổi vật lý va chạm.
+Render giới hạn tối đa 30 Hz, bảng góc cập nhật 10 Hz và chỉ ghi lại các hàng
+thay đổi. Mỗi lượt xử lý giới hạn thời gian bù bước vật lý để giao diện không
+bị kẹt khi render chậm; khi quá tải, thời gian mô phỏng có thể chậm hơn thời gian thực.
+Đo cùng góc camera trên RTX 5070 qua WSLg: thời gian render trung bình giảm
+từ 86,9 ms xuống 25,9 ms; đây không phải cam kết FPS trên mọi máy.
+Đóng cửa sổ cũ và chạy lại lệnh trên để áp dụng thay đổi.
+
+## Khóa khởi động policy — cập nhật 22/10/2026
+
+Trong profile `--sim-policy-control`, robot giữ nguyên base và toàn bộ khớp từ lúc
+mở simulation đến khi có action mới sau Start. Trình tự hiện tại:
+
+1. Khóa tư thế dưới đất, vật trên bàn vẫn có vật lý riêng.
+2. Start khởi tạo SONIC nhưng chưa mở khóa để thực thi token tư thế ban đầu.
+3. Yêu cầu ảnh/state mới và suy luận GR00T trong khi robot vẫn khóa.
+4. Khi có action mới và controller sẵn sàng, chuyển mômen trong 2 giây rồi nhả
+   hỗ trợ đứng. Từ đây SONIC điều khiển chuyển động; không khóa chân suốt tác vụ.
+5. Nếu chờ action quá 15 giây, giữ khóa và báo lỗi. Reset trở về tư thế chờ và
+   xóa action cũ. Cần khởi động lại simulator để nạp thay đổi này.
+
+Thay đổi nằm trong `gear_sonic/utils/mujoco_sim/interactive_controls.py`;
+kiểm thử tại `gear_sonic/tests/test_simulation_controls.py`. 12 kiểm thử gồm
+standby, chuyển trạng thái và PD đã đạt; chưa xác nhận loại bỏ mọi dao động khi
+policy đang thực thi và chưa xác nhận gắp chai thành công.
+
+### Checkpoint thay thế đã tra cứu
+
+- [CloudWalk v10](https://huggingface.co/cloudwalk-research/gr00t-n17-g1-grab-bottle-rh-371ep-v10-finetune):
+  đúng tác vụ chai và SONIC, nhưng dữ liệu dùng Inspire; chưa chạy thành công
+  trên cảnh Dex3 hiện tại.
+- [NVIDIA GR00T-N1.6-G1-PnPAppleToPlate](https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate):
+  có checkpoint và hướng dẫn cho tác vụ gắp táo vào đĩa, sử dụng `UNITREE_G1`
+  cùng sim policy wrapper. Không thay trực tiếp cho `UNITREE_G1_SONIC` v10.
+- [NVIDIA GN1x-Tuned-Arena-G1-Static-PickNPlace](https://huggingface.co/nvidia/GN1x-Tuned-Arena-G1-Static-PickNPlace):
+  model N1.7 cho static pick-and-place trong IsaacLab Arena. Cần môi trường,
+  embodiment và giao diện action đi kèm; không có bằng chứng chạy ngay gắp chai
+  trong scene MuJoCo này. [Workflow chính thức](https://developer.nvidia.com/blog/develop-humanoid-robot-policies-end-to-end-with-nvidia-isaac-gr00t/)
+  mô tả tác vụ táo và bộ điều khiển AGILE.
+
+Chưa tải thêm weights hoặc thay server sang các checkpoint khác. Tìm thấy model
+không đồng nghĩa đã kiểm thử thành công trên máy này.
+
+## Chế độ GR00T v10 → SONIC — cập nhật 20/10/2026
+
+Chọn chế độ này để kiểm tra chính sách đã học thay cho controller gắp RGB-D/IK.
+Server hiện dùng `cloudwalk-research/gr00t-n17-g1-grab-bottle-rh-371ep-v10-finetune`,
+`checkpoint-30000`, revision `f980fd880c92b984d65dcc3f9dc82b98bc8009c0`.
+Metadata local xác nhận horizon 40, token 64 chiều, hai vector hand 7 chiều;
+hai nhóm observation hand của dữ liệu huấn luyện đều hằng 0.
+
+Nếu server v10 đang chạy tại cổng 5550, giữ nguyên. Nếu chưa chạy:
+
+```bash
+cd ~/projects/GR00T-WholeBodyControl
+bash gear_sonic/scripts/run_cloudwalk_policy_server.sh
+```
+
+Terminal khác:
+
+```bash
+cd ~/projects/GR00T-WholeBodyControl
+.venv_inference/bin/python gear_sonic/scripts/launch_inference.py \
+  --sim --sim-policy-control \
+  --policy-host 127.0.0.1 --policy-port 5550 \
+  --no-data-exporter --prompt "grab the bottle"
+```
+
+Luồng đang thực thi:
+
+```text
+RGB camera + prompt + robot state -> GR00T v10
+   motion_token không thay đổi -> SONIC C++ -> 29 lệnh khớp thân -> MuJoCo
+   ý định đóng/mở hand -> adapter thử nghiệm Dex3 -> motor ngón -> MuJoCo
+YOLO tắt; không có nhánh RGB-D/IK điều khiển robot
+```
+
+`--sim-policy-control` chọn baseline **Dex3**, bật adapter grip CloudWalk hiện có,
+đưa hand observation về 0 như thống kê huấn luyện và tắt proximity gate 2 cm.
+Lệnh `--sim` thông thường cũng tự chọn profile này nếu không yêu cầu chế độ hỗ trợ,
+fixed-base, native Inspire hoặc proximity. Profile luôn tắt detector YOLO, kể cả
+khi tùy chọn detector mặc định đang bật. Các lệnh assisted trong phần lịch sử bên
+dưới thuộc phương án cũ, không dùng để đánh giá năng lực checkpoint.
+PD cánh tay giữ bù gravity/Coriolis của MuJoCo để giảm sai số bám; phần này không
+đổi góc khớp đích mà SONIC phát ra. Có thể thử baseline không bù bằng cờ
+`--no-sim-arm-gravity-compensation`. Không bật `--sim-stationary-body`, không tạo IK gắp,
+không weld pelvis, không giữ các khớp thân bằng controller fixture sau Start.
+Các tùy chọn xung đột bị từ chối trước khi thay phiên tmux đang chạy.
+
+Robot vẫn đứng yên khi chờ; bấm Start để chuyển sang SONIC, Reset để khởi tạo lại
+và xóa action cũ. Nút Lower/Place bị vô hiệu hóa vì nó thuộc controller hỗ trợ.
+Không coi việc đổi prompt thành lệnh đặt là đủ để checkpoint gắp một tác vụ học
+được thao tác đặt tại XY tùy ý.
+
+**Giới hạn bàn tay:** adapter chỉ giữ ý định khép/mở và thời điểm từ model, không
+phục dựng kinematics Inspire. `--sim-native-inspire` hiện vẫn thuộc chế độ hỗ trợ;
+không dùng kèm profile policy. Cần xác minh mapper 6 kênh CloudWalk → 6 motor native
+trước khi mở nhánh Inspire thuần policy. Không cắt bỏ kênh thứ 7 rồi gán trực tiếp
+các số chuẩn hóa thành radian.
+
+### Hướng phát triển nhiều vật và nhiều câu lệnh
+
+GR00T v10 là checkpoint VLA đã fine-tune cho gắp chai. Nó nhận RGB, câu lệnh và
+trạng thái robot rồi dự đoán motion token và hand actions; không có đầu ra tọa độ
+chai XYZ để truyền cho SONIC. SONIC nhận motion token và trạng thái robot để tạo
+lệnh chuyển động. Việc model dùng thông tin thị giác không đồng nghĩa nó cung cấp
+một bộ nhận diện vật có tọa độ đọc được.
+
+Để học `grab the apple` hoặc `grab the Rubik's cube`, giữ đường điều khiển này
+và chuẩn bị dữ liệu mới:
+
+1. Xác minh bàn tay và action mapping khớp robot thu thập dữ liệu. Adapter Dex3
+   hiện tại chỉ là baseline, không coi là chuyển đổi Inspire chính xác.
+2. Ghi demonstration đồng bộ RGB, prompt, trạng thái robot, motion token theo
+   encoder SONIC phù hợp và lệnh bàn tay. Không dùng góc khớp hoặc tọa độ IK
+   thay trực tiếp cho motion token.
+3. Thu nhiều vị trí, hướng vật, ánh sáng và cả cảnh nhiều vật với câu lệnh chỉ
+   rõ vật cần gắp. Tách tập kiểm thử theo cảnh/vị trí để tránh chỉ học thuộc.
+4. Fine-tune VLA bằng cấu hình dữ liệu/action tương thích. Fine-tune VLM riêng
+   cho nhận diện có thể hữu ích nhưng không tự tạo kỹ năng điều khiển nắm/nâng.
+5. Đánh giá đúng vật theo prompt, tiếp cận, đóng tay, nâng và giữ vật tại vị trí
+   chưa gặp trong dữ liệu. Không bật trợ giúp IK trong lượt đánh giá policy.
+
+Nếu cần một model xuất XYZ tường minh rồi lập kế hoạch đến XYZ, đó là kiến trúc
+khác cần thiết kế đầu ra và bộ chuyển mục tiêu sang điều khiển; không phải giao
+diện sẵn có của checkpoint v10 và SONIC. Thay đổi hiện tại chưa thực hiện
+fine-tune và chưa bảo đảm gắp thành công vật mới.
+
+Hai file diagnostic mặc định:
+
+- `outputs/gr00t_policy/actions.jsonl`: raw chunk, input state, raw/published token,
+  raw/published hand và nguồn điều khiển. Logger có giới hạn dung lượng.
+- `outputs/gr00t_policy/reach.json` và `.jsonl`: vị trí đo được, target khớp SONIC,
+  lỗi tracking, contact và độ nâng chai. Các số này là measurement trong simulation.
+
+Để chứng minh model đóng góp, đối chiếu token đã gửi với đúng raw chunk/index;
+không chỉ nhìn tay có đưa ra. Pipeline hoạt động không đồng nghĩa đã gắp thành công.
+Tỉ lệ thành công cần được đo lại trên cảnh mô phỏng, camera và embodiment hiện tại.
+Model card cũng ghi nhận động tác nắm khi không có chai, nên không suy ra robot
+đã detect đúng chỉ từ chuyển động tay.
+[Nguồn checkpoint](https://huggingface.co/cloudwalk-research/gr00t-n17-g1-grab-bottle-rh-371ep-v10-finetune),
+[luồng VLA chính thức](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/vla_inference.html).
+
+Đọc log để đối chiếu với đúng chunk/index được chọn:
+
+```bash
+.venv_inference/bin/python gear_sonic/scripts/check_policy_control_trace.py \
+  outputs/gr00t_policy/actions.jsonl \
+  --output outputs/gr00t_policy/routing_report.json
+```
+
+Kết quả kiểm tra trực tiếp ngày 20/10/2026 lưu trong
+`outputs/gr00t_policy/validation_report.json` (không commit log/model lên GitHub):
+
+- Server v10 `checkpoint-30000`, SONIC C++ và MuJoCo thực sự chạy qua loopback.
+- Lượt bật bù mômen PD có 99 raw chunk, 2.809 action đối chiếu đúng chunk/index;
+  không có token bị thay, không có khép tay bằng khoảng cách hay IK gắp.
+- Trong khoảng 56,65 giây mô phỏng đã đo, sai số bám tâm nắm trung vị 1,83 cm.
+- **Chưa gắp được chai**: mức grip từ checkpoint tối đa khoảng 1,48%, không có
+  contact tay–chai hoặc lift đạt điều kiện. Đây là baseline hoạt động của luồng
+  suy luận, không phải một lượt pickup thành công.
+- Frame đầu vào thực tế được lưu ở `outputs/gr00t_policy/policy_camera.jpg`.
+  Cảnh, camera và bàn tay Dex3 khác dữ liệu thật, nên vẫn cần xác minh mapping
+  Inspire, controller SONIC của bên thu thập dữ liệu và đánh giá độ lệch đầu vào.
+  Chưa thể quy nguyên nhân duy nhất cho detector hoặc tọa độ chai.
+
+Cập nhật kiểm tra ngày 21/10/2026 — lịch phát action trong profile policy:
+
+- Ảnh RGB và state simulation được chụp cùng lúc. Client giữ thời điểm đó riêng
+  với thời điểm request để bù cả tuổi ảnh lẫn thời gian suy luận; metadata đồng hồ
+  không gửi vào model. Kết quả request trước Reset vẫn bị loại bỏ.
+- Chỉ số bước action chạy theo đồng hồ monotonic 50 Hz, thay vì cộng một bước mỗi
+  vòng Python. Đoạn đầu sau Start vẫn bắt đầu từ bước 0 khi robot đang giữ tư thế.
+- Client yêu cầu đoạn kế tiếp trước khi hết horizon, căn theo độ trễ vừa đo và
+  biên hai chu kỳ. Không nội suy hay thay giá trị motion token bằng token đứng yên.
+- 21 kiểm thử inference/config/freshness/adapter đạt. Lượt thử đầu sau sửa đồng hồ
+  có 3.112 action đúng nguồn nhưng chưa có contact hoặc nâng chai; không coi việc
+  sửa thời gian là đã giải quyết tương thích embodiment hoặc sim-to-real.
+- Kiểm thử server v10 với mẫu tham chiếu v2 episode 0 (cùng dòng dữ liệu, **không
+  phải tập đánh giá độc lập v10**) cho grip đầu frame 480 khoảng 0,329 so với mẫu
+  0,30, sau đó gần 1,0. Model có dự đoán đóng tay trên mẫu này. Báo cáo nằm tại
+  `outputs/gr00t_policy/v10_reference_check.json`; phép thử không gửi lệnh robot.
+
+Lượt thử sau khi sửa lịch refresh: 3.432 action đối chiếu đúng raw chunk/index,
+không override. Kết quả tổng hợp tại `outputs/gr00t_policy/clock_refresh_validation.json`.
+Robot đã Reset về standby sau kiểm thử; chưa xác nhận pickup thành công.
+
+Để đánh giá lượt sửa này, xem `clock_refresh_actions.jsonl` và
+`clock_reach.jsonl` trong `outputs/gr00t_policy/`. Chỉ đối chiếu các đoạn có trạng
+thái `running`; file reach chứa cả hai lượt thử và các đoạn Reset/chờ.
+
+Kiểm tra đóng tay sớm với Dex3 (21/10/2026):
+
+- Giữ nguyên Dex3 theo yêu cầu, không bật IK/gate khoảng cách. Khi grip lần đầu
+  vượt 0,5 trong lượt đo, khoảng cách hình học tay–chai là 6,04 cm và sai số bám
+  tâm nắm so với đích SONIC là 1,56 cm. Chưa có contact hoặc lift.
+- Thử 3 lần cho mỗi tổ hợp ảnh/state tại một mẫu: với cùng state simulation,
+  RGB simulation cho grip tối đa 0,007–0,024; đổi sang RGB tham chiếu pha nắm
+  cho grip lên 1,0. Các cặp ảnh/state hoán đổi không đồng bộ về mặt vật lý,
+  chỉ dùng kiểm tra độ nhạy của policy, không dùng điều khiển robot hoặc đánh giá
+  thành công. Không thể từ phép thử này suy ra một camera offset sửa được mọi lỗi.
+- Báo cáo: `outputs/gr00t_policy/grip_audit_summary.json` và
+  `outputs/gr00t_policy/grip_input_ablation.json`. Ảnh thực tế:
+  `outputs/gr00t_policy/grip_live_rgb.png`. Checkpoint vẫn chưa được fine-tune
+  cho Dex3 và cảnh simulation hiện tại. Luồng policy đúng không đồng nghĩa
+  checkpoint đã có khả năng gắp thành công trong môi trường mới.
+
+Các test cấu hình/action/freshness dùng môi trường inference, test PD dùng môi
+trường simulation (hai môi trường có dependency khác nhau):
+
+```bash
+.venv_inference/bin/python -m unittest \
+  gear_sonic.tests.test_policy_control \
+  gear_sonic.tests.test_sim_grasp_defaults \
+  gear_sonic.tests.test_observation_freshness \
+  gear_sonic.tests.test_inspire_adapter -v
+
+.venv_sim/bin/python -m unittest gear_sonic.tests.test_policy_body_tracking -v
+```
+
+File sửa/thêm cho nhánh policy: `launch_inference.py`, `run_vla_inference.py`,
+`run_sim_loop.py`, `configs.py`, `base_sim.py`, `interactive_controls.py`,
+`policy_control.py`, `check_policy_control_trace.py` và các test tương ứng.
+Backup các file vốn đã tùy biến trước lần chuyển này nằm trong
+`outputs/backups/before_gr00t_policy_20261020_225237/`; không dùng `git reset --hard`
+để quay lại vì workspace còn nhiều thay đổi chưa commit từ trước.
+
+Để quay lại bản Inspire đã gắp/đặt bằng hỗ trợ, dùng lệnh native ở phần dưới với
+`--sim-assisted-pickup --sim-fixed-base`, bỏ `--sim-policy-control`. Các hướng dẫn
+MD bước 1–6 đã push mô tả bản hỗ trợ đó và vẫn giữ nguyên.
+
+## Đọc phần nào trước?
+
+- [Chạy Inspire và pickup/place hiện tại](#inspire-native).
+- [Cài WSL/môi trường/repository cá nhân](#personal-repository).
+- [Start, Reset, tọa độ chai và Lower](#simulation-controls).
+- [Dọn dung lượng và thu hồi ổ C](#disk-cleanup).
+- [Bản vá code mới nhất](#current-code-patch).
+- [Bản chụp WSL/code cũ để đối chiếu](#legacy-wsl-snapshot).
+
+Ưu tiên profile GR00T–SONIC ở trên cho nhánh policy; lệnh Inspire bên dưới dành
+cho bản hỗ trợ đã có. Những phần Dex3/checkpoint cũ bên dưới được giữ
+để tra cứu, không dùng chúng để suy ra rằng `--inspire-ftp-hands` chọn bàn tay
+native. Flag chọn native là `--sim-native-inspire`; thao tác đang dùng GR00T
+kết hợp bộ hiệu chỉnh MuJoCo, chưa phải triển khai robot thật.
+
+
+<a id="inspire-native"></a>
+
+## Chạy bàn tay Inspire native
+
+# G1 với Inspire RH56DFTP: mô hình native trong MuJoCo
+
+Cấu hình người dùng: G1 EDU Ultimate C-U6, hai bàn tay Inspire RH56DFTP-2L/2R.
+Ảnh thông số ghi 41 DoF, tương ứng 29 khớp thân + 6 motor mỗi bàn tay.
+
+## Nguồn mô hình
+
+Dùng URDF `g1_29dof_rev_1_0_with_inspire_hand_FTP.urdf` từ
+[Unitree Robotics](https://github.com/unitreerobotics/unitree_ros/tree/5994d4faef0a9cadd3287f8de0199a67eeb2a259/robots/g1_description),
+revision `5994d4faef0a9cadd3287f8de0199a67eeb2a259`.
+Đây là mô hình FTP chính thức; cần đối chiếu lại serial/revision cơ khí thực tế
+trước khi coi nó trùng hoàn toàn phiên bản RH56DFTP-2R/2L đang sở hữu.
+Mỗi tay có 12 khớp chuyển động nhưng chỉ 6 motor; 6 khớp còn lại phụ thuộc mimic.
+Tổng 41 actuator, 53 khớp hinge, thêm free joint của robot và chai.
+
+## Chạy nắm → nâng → đặt → thu tay với Inspire
+
+Chạy từ thư mục gốc repository, sau khi cài môi trường theo
+[RUN_FROM_PERSONAL_REPOSITORY.md](#personal-repository).
+
+**Bước 1 — tạo/cập nhật cả hai scene** (chạy lại sau khi cập nhật code generator):
+
+```bash
+.venv_sim/bin/python gear_sonic/scripts/prepare_inspire_ftp_sim.py
+```
+
+Lệnh tải URDF/mesh vào `models/g1_inspire_ftp`, lưu nguồn/SHA256 ở `source.json`,
+tạo `g1_inspire_ftp.xml` cho preview và `g1_inspire_ftp_pickup.xml` cho luồng gắp.
+Model tải riêng, không nhúng mesh binary vào code. File sinh ra không nên chỉnh
+trực tiếp; sửa generator rồi chạy lại để tái lập được kết quả.
+
+**Bước 2 — server GR00T, terminal thứ nhất:**
+
+```bash
+bash gear_sonic/scripts/run_cloudwalk_policy_server.sh
+```
+
+Nếu server đang chạy và dùng đúng checkpoint thì giữ nguyên, không mở thêm server
+trên cùng cổng 5550. Bản này không thay hoặc fine-tune checkpoint v10.
+
+**Bước 3 — simulator, terminal thứ hai:**
+
+Đóng phiên simulator cũ trước khi chạy; mỗi lần chỉ mở một phiên dùng các cổng này.
+
+```bash
+.venv_inference/bin/python gear_sonic/scripts/launch_inference.py \
+  --sim --policy-host 127.0.0.1 --policy-port 5550 \
+  --no-data-exporter \
+  --sim-native-inspire --sim-assisted-pickup --sim-fixed-base \
+  --prompt "grab the bottle"
+```
+
+Tên cửa sổ phải là `G1 Inspire RH56DFTP - 41 active joints`, có bàn tay 5 ngón.
+`--sim-native-inspire` mới chọn model thật trong MuJoCo. Flag cũ
+`--inspire-ftp-hands` chỉ là adapter đầu ra checkpoint sang Dex3; không cần thêm
+flag đó trong lệnh native ở trên. Không thêm cổng/driver để kết nối robot thật.
+
+1. Robot giữ nguyên toàn bộ tư thế chờ; pelvis cố định trong simulation.
+2. Nhập `Bottle position X/Y`, bấm **Apply XY / Reset bottle**. Z theo mặt bàn.
+3. Bấm **Start GR00T** (hoặc F6 khi focus cửa sổ MuJoCo). Bộ gắp chờ các quan sát
+   YOLO RGB-D mới, ổn định rồi tiếp cận, khép tay và nâng chai khoảng 20 cm.
+4. Khi trạng thái `success`, nhập `Place destination X/Y`, bấm
+   **Lower / Place on table**. Tay chuyển đến vị trí đó, hạ tới tiếp xúc bàn,
+   mở ngón đồng thời lùi lòng bàn tay để tránh ngón duỗi đẩy chai.
+5. Sau khi xác nhận chai đứng trên bàn, tay thu về; `complete` bật lại nút Start
+   để gắp chai ở vị trí mới mà không Reset.
+6. **Reset robot + bottle** / F5 dừng chu trình và khôi phục toàn bộ trạng thái,
+   giữ XY chai đã chọn bằng Apply. Không dùng Reset để thay cho Lower khi đang cầm.
+
+Workspace trên panel là biên mặt bàn, không phải bảo đảm tay với tới mọi điểm.
+IK từ chối đích không với tới. Nếu mất vật khi giữ, trạng thái chuyển `failed`
+và không cho đặt một chai không còn nằm trong tay.
+
+## Luồng điều khiển thực tế
+
+```text
+Camera RGB + trạng thái khớp + prompt → GR00T → SONIC (standing token)
+Camera RGB-D → YOLO → tâm chai ước lượng → IK cánh tay / máy trạng thái pickup-place
+                                              ↓
+                              6 motor Inspire + 6 khớp mimic mỗi tay
+                                              ↓
+                                      tiếp xúc vật lý MuJoCo
+```
+
+Đây là **GR00T kết hợp điều khiển hiệu chỉnh trong simulation**, không phải chứng
+minh checkpoint tự điều khiển Inspire thành công. Ở chế độ fixed-base assisted,
+bộ IK/tiếp xúc điều khiển tay và thao tác; GR00T vẫn nhận ảnh và chạy inference.
+Chai là free body, không gắn weld vào tay và không nhận lực nâng bên ngoài.
+
+Schema trạng thái policy hiện vẫn là Dex3 7 kênh. Camera xuất đủ 6 góc motor
+Inspire và nhãn `inspire_ftp_motor_radians`; client chuyển sang quan sát Dex3
+**xấp xỉ độ gập** trước khi gọi policy. Đây chưa phải mapping CloudWalk/Inspire
+được hiệu chuẩn. Lệnh DDS Dex3 không được áp vào 6 motor native; thao tác ngón
+native do bộ assisted quản lý. Không dùng mapping này để điều khiển tay thật.
+
+## Preview bàn tay riêng (không server)
+
+```bash
+.venv_sim/bin/python gear_sonic/scripts/run_inspire_ftp_sim.py
+```
+
+Space đóng/mở hai tay; L/R từng tay; Backspace reset. Đây chỉ là preview với
+position actuator, khác scene runtime dùng motor torque và các nút pickup/place.
+
+## Phần đã chuyển đổi và kiểm tra
+
+- Hình học và inertia G1/FTP từ URDF chính thức, giữ các link fixed để không mất
+  khối lượng lòng bàn tay khi chuyển đổi; mỗi base link là 0.62266 kg.
+- 12 equality joint constraints cho mimic; không tạo thêm motor cho khớp phụ thuộc.
+- 41 position actuator trong bản kiểm tra; lực giới hạn theo URDF. Gain dùng cho
+  kiểm tra simulation, không phải thông số điều khiển phần cứng.
+- Loại riêng cặp va chạm palm–thumb_2 của mỗi tay vì convex collision mesh chồng
+  lên phần bản lề bên trong. Va chạm ngón với chai/bàn vẫn được giữ.
+- Mesh cảm biến được giữ, nhưng **không mô phỏng 17 cảm biến xúc giác/pressure
+  map điện tử mỗi tay**. Không suy diễn dữ liệu tactile từ hình mesh.
+
+## Kết quả kiểm tra ngày 11/10/2026
+
+- Kiểm thử vật lý có kiểm soát qua 4 vị trí: `(0.43, -0.11)`, `(0.40, -0.15)`,
+  `(0.46, -0.08)`, `(0.43, -0.05)`. Mỗi lượt giữ 60 giây simulation,
+  đặt tại XY mới, thu tay, gắp lại không reset; kiểm tra mất vật cũng khóa Lower.
+- Lượt live chạy **đúng launcher + server GR00T + YOLO RGB-D**, bắt đầu ở
+  `(0.43, -0.05)`: giữ chai cao hơn vị trí ban đầu tối thiểu khoảng **18,17 cm**.
+- Bấm Lower với đích `(0.45, -0.05)`: chai đứng tại khoảng `(0.4441, -0.0541)`,
+  sai số XY khoảng **7,2 mm**; trạng thái `complete`, tay về home.
+- Bấm Start tiếp, không Reset: detector cập nhật tâm chai mới khoảng
+  `(0.4447, -0.0553)` và gắp/nâng lại thành công, giữ cao tối thiểu **18,15 cm**.
+- Kiểm thử Dex3 cũ, topology Inspire và schema observation đều qua. Đây là
+  các trường hợp đã đo, không phải bảo đảm thành công ở mọi XY trên mặt bàn.
+
+## Kiểm thử và các file thay đổi
+
+```bash
+.venv_sim/bin/python -m unittest \
+  gear_sonic.tests.test_inspire_ftp_model \
+  gear_sonic.tests.test_native_inspire_pickup
+.venv_inference/bin/python -m unittest \
+  gear_sonic.tests.test_observation_freshness \
+  gear_sonic.tests.test_sim_grasp_defaults
+```
+
+Test vật lý cấp tọa độ RGB-D có kiểm soát để tách lỗi tiếp xúc khỏi lỗi detector:
+kiểm tra nâng >12 cm, giữ 60 giây simulation, đặt chai đứng sai số XY <2,5 cm,
+thu tay, gắp lần hai không reset, rồi reset tất cả. Test bỏ qua model nếu chưa
+build; kết quả skipped không phải đã kiểm tra vật lý. Kiểm tra live YOLO/server
+cần chạy riêng bằng lệnh launcher phía trên.
+
+| File | Thay đổi |
+|---|---|
+| `gear_sonic/scripts/prepare_inspire_ftp_sim.py` | Tải nguồn pinned, tạo scene preview và torque runtime, mimic, camera, tâm nắm Inspire |
+| `gear_sonic/scripts/run_inspire_ftp_sim.py` | Preview đóng/mở bàn tay native |
+| `gear_sonic/scripts/launch_inference.py` | Flag `--sim-native-inspire`, kiểm tra scene và chế độ hỗ trợ |
+| `gear_sonic/scripts/run_sim_loop.py`, `gear_sonic/utils/mujoco_sim/configs.py` | Chọn scene native, 6 motor/tay, không lấy lệnh DDS Dex3 cho ngón |
+| `gear_sonic/utils/mujoco_sim/base_sim.py` | Dùng địa chỉ qpos/dof/actuator thay cho phép trừ joint ID, tư thế chờ Inspire, xuất trạng thái camera |
+| `gear_sonic/utils/mujoco_sim/assisted_pickup.py` | Profile nắm 6 khớp, nhả/lùi tay Inspire, phát hiện mất vật khi giữ |
+| `gear_sonic/utils/mujoco_sim/inspire_hand.py`, `gear_sonic/scripts/run_vla_inference.py` | Quan sát policy xấp xỉ, có nhãn rõ ràng, tránh đọc quá 6 khớp |
+| `gear_sonic/utils/mujoco_sim/palm_proximity.py`, `reach_diagnostics.py` | Nhận đúng lòng bàn tay và các ngón native trong đo tiếp xúc |
+| `gear_sonic/tests/test_native_inspire_pickup.py`, `test_inspire_ftp_model.py`, `test_observation_freshness.py` | Kiểm thử topology, physics, observation |
+
+Model mặc định Dex3 vẫn giữ nguyên. Để quay về, bỏ `--sim-native-inspire` và dùng
+lệnh Dex3 trong hướng dẫn cũ. Các gain/tư thế/fixture trong bản này chỉ được kiểm
+tra ở MuJoCo; chưa phải cấu hình triển khai robot thật.
+
+
+<a id="personal-repository"></a>
+
+## Cài đặt từ repository cá nhân
+
+# Chạy G1 pickup/place từ repository quyhuyhp123
+
+> **Bàn tay Inspire RH56DFTP:** xem [hướng dẫn native Inspire](#inspire-native)
+> để build model và chạy pickup/place bằng `--sim-native-inspire --sim-assisted-pickup --sim-fixed-base`.
+> Các lệnh chỉ có `--inspire-ftp-hands` bên dưới vẫn dùng hình học Dex3.
+
+
+Repository: https://github.com/quyhuyhp123/g1-pickup-bottle-simulation
+
+Tài liệu **clone repository này lần đầu**. Code simulation đã
+được chỉnh sẵn; không áp lại bản vá WBC trong tài liệu lịch sử. Repository chỉ
+chứa code/config/tài liệu, còn mesh, thư viện nhị phân và model tải riêng.
+
+Nếu đã chạy được ở `~/projects/GR00T-WholeBodyControl`, không cần cài lại hay
+xóa môi trường đó. Các bước dưới tạo một thư mục mới tên
+`~/projects/g1-pickup-bottle-simulation`.
+
+## 1. Phạm vi và kết quả
+
+Đây là **MuJoCo**, không phải Isaac Sim. Isaac-GR00T là policy server.
+Chế độ chạy đã kiểm thử dùng **RGB-D/IK hỗ trợ, pelvis cố định**. GR00T vẫn
+nhận ảnh/trạng thái và trả dự đoán, nhưng không được mô tả kết quả này là
+checkpoint tự thực hiện toàn bộ gắp/đặt. SONIC dùng token đứng; bộ hỗ trợ
+điều khiển eo, tay phải và ngón. Chai được nâng bằng tiếp xúc vật lý, không weld vào tay.
+`--inspire-ftp-hands` dùng adapter lệnh bàn tay; mô hình MuJoCo vẫn là Dex3,
+không phải triển khai bàn tay Inspire FTP nguyên bản.
+
+Có: Start/Reset; vị trí chai X/Y; tọa độ tay và detector; gắp/nâng; nhập đích
+đặt xuống; mở tay; thu tay; Start gắp tiếp không Reset; camera trực tiếp +
+khung YOLO 2 Hz. Z theo mặt bàn. Đây là bài mô phỏng với vùng làm việc hữu hạn,
+không bảo đảm mọi điểm trên bàn đều tới được.
+
+Hướng dẫn được đối chiếu với workspace đang chạy. **Chưa cài lại từ đầu trên
+một máy Windows sạch**; phiên bản driver/GPU có thể yêu cầu xử lý riêng.
+Các kiểm thử vật lý dùng đầu vào nhận diện có kiểm soát; không đồng nghĩa
+mọi vị trí đều đã thử với YOLO trực tiếp.
+
+## 2. Windows, WSL và GPU
+
+Máy tham chiếu: Ubuntu **22.04.5 LTS** trong WSL2, CUDA Toolkit **12.4**;
+Python simulator 3.10, inference/server 3.12. GPU CUDA cần đủ VRAM cho model,
+TensorRT và render đồng thời; phiên làm việc trước dùng GPU 12 GB, không coi
+đó là bảo đảm cho mọi máy. Dự trù trên 100 GB trống nếu cài đủ các môi trường,
+model và cache; tránh tải dataset huấn luyện không dùng.
+
+PowerShell **Administrator**:
+
+```powershell
+wsl --install -d Ubuntu-22.04
+# Khởi động lại Windows nếu được yêu cầu, tạo tài khoản Ubuntu.
+wsl --update
+wsl --set-default-version 2
+wsl -l -v
+```
+
+Cài NVIDIA driver hỗ trợ WSL trên **Windows**. Không cài Linux NVIDIA display
+driver vào WSL. WSLg cung cấp cửa sổ Linux; dùng Windows/WSL cập nhật.
+Xem nguồn chính thức: [Microsoft — Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install),
+[Microsoft — GUI apps](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps),
+[NVIDIA — CUDA on WSL](https://docs.nvidia.com/cuda/wsl-user-guide/index.html).
+
+Trong Ubuntu:
+
+```bash
+nvidia-smi
+printf '%s\n' "$DISPLAY" "$WAYLAND_DISPLAY"
+sudo apt update
+sudo apt install -y git git-lfs curl wget build-essential cmake ninja-build \
+  pkg-config tmux unzip python3-dev python3-tk libgl1 libegl1 libglfw3 \
+  libglib2.0-0 ffmpeg
+mkdir -p ~/projects
+cd ~/projects
+git lfs install
+```
+
+Lưu dự án trong `~/projects` của Linux, tránh chạy môi trường Python/build
+trong `/mnt/c` để giảm I/O: [Microsoft — WSL development environment](https://learn.microsoft.com/en-us/windows/wsl/setup/environment).
+Nếu dùng VS Code, mở bằng `code .` trong WSL và chọn interpreter tương ứng.
+
+## 3. Clone repository của tác giả và tải tài nguyên runtime
+
+```bash
+mkdir -p ~/projects
+cd ~/projects
+git clone https://github.com/quyhuyhp123/g1-pickup-bottle-simulation.git
+cd g1-pickup-bottle-simulation
+python3 install_scripts/download_runtime_assets.py
+```
+
+Không chạy `git lfs pull` ở repository này. Script đọc
+`runtime_assets_manifest.json`, tải tài nguyên từ upstream được pin commit và
+kiểm tra SHA256. Mặc định chỉ tải nhóm runtime/simulation; không thêm `--all`
+nếu không cần các demo/training khác. Chạy lại sẽ bỏ qua file đã đúng checksum.
+Nếu lỗi mạng/404/checksum, dừng để xử lý, không bỏ qua mesh/thư viện rồi chạy tiếp.
+Script này chưa thay việc tải SONIC ONNX, GR00T và YOLO ở mục 7.
+
+## 4. Isaac-GR00T server: clone và áp bản vá BF16
+
+Đặt Isaac-GR00T cạnh repository simulation:
+
+```bash
+cd ~/projects
+git clone https://github.com/NVIDIA/Isaac-GR00T.git
+cd Isaac-GR00T
+git checkout 51d4c89f72fda44cbf77285c6a8114b52676b8a1
+cd ../g1-pickup-bottle-simulation
+```
+
+Nếu thư mục Isaac-GR00T đã có và đang dùng, kiểm tra phiên bản/thay đổi trước
+khi checkout; không ghi đè môi trường đang làm việc. Có thể bố trí hai repo
+trong một thư mục cha khác để tránh xung đột, miễn chúng vẫn cạnh nhau.
+
+Trích **chỉ bản vá GR00T** đã có trong tài liệu đi kèm repository:
+
+```bash
+python3 - <<'PYBF16'
+from pathlib import Path
+import hashlib
+text = Path('docs/source/tutorials/WSL_BLUE_BOTTLE_COMPLETE_GUIDE.md').read_text()
+prefix = '<!-- PATCH-GR00T-BEGIN -->\n```diff\n'
+payload = text.split(prefix, 1)[1].split('```\n<!-- PATCH-GR00T-END -->', 1)[0]
+expected = text.split('SHA256-GR00T: `', 1)[1].split('`', 1)[0]
+assert hashlib.sha256(payload.encode()).hexdigest() == expected
+Path('/tmp/gr00t-bf16.patch').write_text(payload)
+PYBF16
+git -C ../Isaac-GR00T apply --check /tmp/gr00t-bf16.patch
+git -C ../Isaac-GR00T apply /tmp/gr00t-bf16.patch
+```
+
+Chỉ áp một lần trên phiên bản server đã pin. Bản vá nạp model thẳng BF16 để
+tránh cấp phát FP32 tạm. Không cần chỉnh lại code WBC/Dex3/IK vì repository
+cá nhân đã chứa tất cả chức năng này.
+
+## 5. CUDA, TensorRT và C++ SONIC
+
+C++ deploy cần CUDA Toolkit riêng, không chỉ Torch CUDA wheel. Cài CUDA Toolkit
+12.4 theo hướng dẫn WSL của NVIDIA; chọn **toolkit-only**, không chọn gói
+`cuda`, `cuda-12-x` hoặc `cuda-drivers` kéo Linux driver vào WSL.
+Tải TensorRT **10.13 x86_64 TAR** tương thích CUDA theo yêu cầu của commit WBC
+này và giải nén vào `~/TensorRT`. Đây là SDK C++ khác với gói TensorRT Python
+mà Isaac-GR00T có thể cài phiên bản khác trong venv.
+
+```bash
+export CUDA_HOME=/usr/local/cuda
+export PATH="$CUDA_HOME/bin:$PATH"
+export TensorRT_ROOT="$HOME/TensorRT"
+export LD_LIBRARY_PATH="$TensorRT_ROOT/lib:$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
+nvcc --version
+ls "$TensorRT_ROOT/include/NvInfer.h" "$TensorRT_ROOT/lib/libnvinfer.so"
+cd ~/projects/g1-pickup-bottle-simulation/gear_sonic_deploy
+bash scripts/install_deps.sh
+source scripts/setup_env.sh
+just build
+cd ..
+```
+
+Nếu `just` chưa có, cài theo công cụ được nêu trong README/install_deps của
+repo trước khi build. Không sao chép TensorRT engine từ GPU khác; build lại
+trên GPU đích. Không chạy `deploy.sh` không tham số: mặc định script có thể là
+robot thật; toàn bộ hướng dẫn này chỉ dùng launcher **`--sim`** và loopback.
+
+## 6. Các môi trường Python
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source "$HOME/.local/bin/env"
+cd ~/projects/Isaac-GR00T
+uv sync --python 3.12
+cd ../g1-pickup-bottle-simulation
+bash install_scripts/install_mujoco_sim.sh
+```
+
+Script simulator tạo `.venv_sim` Python 3.10 và cài Unitree SDK. Các script
+install có thể **xóa và tạo lại venv cùng tên**; chỉ chạy lúc setup, không chạy
+mỗi lần mô phỏng. Máy mới cần Internet để tải Python/packages.
+
+Để không để dependency `gr00t @ git+...` lấy HEAD khác phiên bản server,
+tạm pin URL trong pyproject trước khi cài inference:
+
+```bash
+python3 - <<'PYPIN'
+from pathlib import Path
+p = Path('gear_sonic/pyproject.toml')
+s = p.read_text().replace(
+    'gr00t @ git+https://github.com/NVIDIA/Isaac-GR00T.git"',
+    'gr00t @ git+https://github.com/NVIDIA/Isaac-GR00T.git@51d4c89f72fda44cbf77285c6a8114b52676b8a1"')
+p.write_text(s)
+PYPIN
+bash install_scripts/install_inference.sh
+bash install_scripts/install_bottle_detector.sh
+# scipy cần cho IK; kiểm tra cả simulator và inference.
+.venv_sim/bin/python -c 'import mujoco, scipy, tkinter; print(mujoco.__version__)'
+.venv_inference/bin/python -c 'import torch, cv2, ultralytics; print(torch.__version__, torch.cuda.is_available())'
+../Isaac-GR00T/.venv/bin/python -c 'import torch; print(torch.__version__, torch.cuda.is_available())'
+```
+
+YOLO installer dùng `--no-deps` để tránh nâng Torch của môi trường hiện có.
+Trên máy mới nếu thiếu dependency, đối chiếu metadata `ultralytics` và cài
+gói thiếu trong `.venv_inference`, không nâng toàn bộ Torch/NumPy tùy ý.
+Workspace tham chiếu: Torch **2.9.0+cu128**, NumPy **1.26.4**, SciPy **1.15.3**,
+OpenCV **4.11.0.86**, Ultralytics **8.4.174**. Phiên bản này là số đo môi trường,
+không phải lockfile toàn bộ dependencies.
+
+## 7. Tải model
+
+Từ thư mục g1-pickup-bottle-simulation, tải ONNX/planner SONIC, không tải training dataset:
+
+```bash
+.venv_inference/bin/python download_from_hf.py
+.venv_inference/bin/python - <<'PYMODEL'
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='cloudwalk-research/gr00t-n17-g1-grab-bottle-rh-371ep-v10-finetune',
+    revision='f980fd880c92b984d65dcc3f9dc82b98bc8009c0',
+    local_dir='checkpoints/cloudwalk_g1_bottle_v10',
+    allow_patterns=['checkpoint-30000/**', 'README.md'],
+)
+PYMODEL
+.venv_inference/bin/python gear_sonic/scripts/check_cloudwalk_checkpoint.py \
+  checkpoints/cloudwalk_g1_bottle_v10/checkpoint-30000
+```
+
+YOLO11n tải bằng `install_bottle_detector.sh`. Nếu HF yêu cầu quyền, đăng nhập
+bằng tài khoản có quyền và chấp nhận license; không gửi token trong tài liệu.
+Checkpoint hiện tại là **v10, 371ep, checkpoint-30000**, không phải v6/502ep.
+Script tải SONIC của upstream lấy release hiện tại; để tái lập từng byte
+ONNX cần lưu revision/model manifest riêng. Tài liệu pin nguồn code và v10,
+không khẳng định đã pin mọi artifact upstream.
+
+## 8. Chạy
+
+Terminal 1 (thư mục g1-pickup-bottle-simulation):
+
+```bash
+bash gear_sonic/scripts/run_cloudwalk_policy_server.sh
+```
+
+Chờ server sẵn sàng. Patch BF16 trong phụ lục giảm cấp phát FP32 tạm khi nạp
+model; không loại bỏ nhu cầu VRAM. Terminal 2:
+
+```bash
+.venv_inference/bin/python gear_sonic/scripts/launch_inference.py \
+  --sim --policy-host 127.0.0.1 --policy-port 5550 \
+  --no-data-exporter --inspire-ftp-hands \
+  --sim-assisted-pickup --sim-fixed-base \
+  --prompt "grab the bottle"
+```
+
+Có thể thêm `--sim-bottle-xy 0.43 -0.11`. Không thay hai flag assisted/fixed-base
+bằng `--sim-grasp-distance`: đó chỉ là ngưỡng khép tay của chế độ cũ.
+
+## 9. Thao tác giao diện
+
+1. Khi mở: robot giữ tư thế, chưa tự gắp. Không cần bấm 9.
+2. X/Y ban đầu → Apply X/Y / Reset bottle để dựng chai. Z theo bàn.
+3. Start GR00T → chờ nhận diện, tiếp cận, nắm, nâng (`success`).
+4. Nhập **Place destination X/Y** (ví dụ 0.45, -0.05).
+5. Lower / Place on table → chuyển ngang → hạ → mở tay → lùi → thu tay.
+6. Khi `complete`, Start sáng lại. Bấm để nhận diện chai tại vị trí mới và gắp
+   tiếp. Không Reset nên chai không dịch về ban đầu.
+7. Reset robot + bottle ngắt lượt, xóa mục tiêu/lệnh cũ, đưa robot về tư thế
+   ban đầu và dựng chai tại X/Y ban đầu đã chọn. F5 Reset, F6 Start, F2 mở panel.
+
+Tâm chai ban đầu Z khoảng 0.801 m; mặt bàn 0.700 m. X/Y thế giới, đơn vị mét.
+Bàn có giới hạn X 0.276..0.724, Y -0.424..0.424 m nhưng tầm tay nhỏ hơn.
+Sai số xác nhận đặt dưới 2.5 cm. Hạ dò 3 mm/s tối đa 2 cm nếu chưa tiếp xúc bàn.
+YOLO là detector riêng; checkpoint không xuất XYZ chai. Không nhầm tọa độ
+bề mặt YOLO với tâm chai MuJoCo. Điểm xanh là tâm vùng nắm, không phải đầu ngón.
+Camera góc phải nhận ảnh trực tiếp, khung YOLO 2 Hz có tuổi kết quả riêng,
+tự ẩn khi quá 750 ms. Giảm Hz giảm tải, không làm detector đo nhanh hơn.
+
+## 10. Kiểm tra và xử lý lỗi
+
+```bash
+ss -ltnp 'sport = :5550'
+tmux list-sessions
+tmux attach -t sonic_inference
+.venv_sim/bin/python -m unittest \
+  gear_sonic.tests.test_assisted_pickup \
+  gear_sonic.tests.test_simulation_controls \
+  gear_sonic.tests.test_viewer_overlay \
+  gear_sonic.tests.test_async_camera
+```
+
+| Hiện tượng | Kiểm tra / xử lý |
+|---|---|
+| Tay đưa ra nhưng không nâng | Lệnh phải có assisted-pickup và fixed-base; xem stage/error |
+| Start không hoạt động | Server 5550, C++/SONIC ready, camera mới; đọc tmux inference/sim |
+| Hạ rồi giữ nguyên | Không có lực đỡ bàn hoặc IK ngoài tầm; xem error, chọn đích gần hơn |
+| Đặt xong muốn gắp tiếp | Chờ complete; Start, không Reset |
+| Không thấy nút mới | Đóng phiên cũ và chạy lại launcher để nạp code mới |
+| CUDA OOM | Kiểm tra nvidia-smi, model BF16, các tiến trình GPU khác |
+| Không có GUI | Kiểm tra WSLg/DISPLAY và driver Windows, không tự đặt DISPLAY ngẫu nhiên |
+| Preview stale | Xem camera process, EGL và tải CPU/GPU; tuổi YOLO khác tuổi camera |
+| Build không tìm NvInfer | Kiểm tra TensorRT_ROOT, CUDA, source setup_env.sh |
+| Dung lượng tăng | venv, HF/uv cache, CUDA/TensorRT và model chiếm lớn; không xóa model đang dùng |
+
+Các test camera cần socket localhost/EGL; môi trường sandbox có thể chặn,
+không nên kết luận lỗi robot chỉ từ PermissionError của socket.
+Không dùng kết quả simulator để suy ra an toàn triển khai robot thật.
+
+## 11. Cập nhật repository và chia sẻ
+
+Để nhận code mới, dừng simulation rồi chạy `git pull` trong bản clone cá nhân.
+Nếu có chỉnh sửa local, kiểm tra `git status` trước; không tự reset/xóa thay đổi.
+Cập nhật thường không cần cài lại venv hoặc tải model. Chỉ cài lại dependencies
+khi pyproject/install scripts thay đổi và hướng dẫn release yêu cầu.
+
+Nếu bạn là chủ repository và muốn đăng tài liệu này từ bản export hiện tại:
+
+```bash
+cd ~/projects/GR00T-WholeBodyControl/share_code_only
+git add README.md docs/source/tutorials/WSL_BLUE_BOTTLE_COMPLETE_GUIDE.md
+git commit -m "Document setup and operation from personal repository"
+git push origin main
+```
+
+Đây là đường dẫn trên máy tác giả; người clone chỉ cần đọc hướng dẫn, không
+cần thư mục share_code_only. Không chạy các script install mỗi lần mở robot:
+chúng có thể xóa và tạo lại venv.
+
+## 12. Tài liệu liên quan
+
+- [Điều khiển simulation](#simulation-controls): các nút và ý nghĩa tọa độ.
+- [Bản ghi đầy đủ thay đổi/code](#legacy-wsl-snapshot): phụ lục patch
+  lịch sử. Không áp WBC patch vào repository cá nhân lần nữa.
+- [README upstream](../../../UPSTREAM_README.md): bối cảnh dự án NVIDIA gốc.
+
+Repository cá nhân giữ license/ghi nhận nguồn upstream. Hướng dẫn này chưa
+được kiểm chứng bằng một lượt cài Windows sạch; bản simulator đang chạy và các
+kiểm thử là bằng chứng chức năng, không thay cho kiểm thử cài mới trên mọi GPU.
+
+
+<a id="simulation-controls"></a>
+
+## Các nút điều khiển và tọa độ
+
+# Điều khiển chai và robot trong MuJoCo
+
+> Với bàn tay 5 ngón **Inspire RH56DFTP native**, dùng
+> [hướng dẫn Inspire](#inspire-native) và thêm
+> `--sim-native-inspire --sim-assisted-pickup --sim-fixed-base`.
+> Flag `--inspire-ftp-hands` bên dưới chỉ là adapter cho mô hình Dex3.
+
+
+Giữ policy server v10 đang chạy, hoặc mở terminal riêng và chạy:
+
+```bash
+bash gear_sonic/scripts/run_cloudwalk_policy_server.sh
+```
+
+Detector riêng đã được cài trong môi trường hiện tại. Khi cài lại dự án, chạy
+một lần `bash install_scripts/install_bottle_detector.sh`. Script tải YOLO11n
+khoảng **5.4 MiB** và giữ nguyên các phiên bản Torch/GR00T đã cài.
+
+Từ thư mục gốc dự án, khởi động simulation:
+
+```bash
+.venv_inference/bin/python gear_sonic/scripts/launch_inference.py \
+  --sim \
+  --policy-host 127.0.0.1 \
+  --policy-port 5550 \
+  --no-data-exporter \
+  --inspire-ftp-hands \
+  --sim-assisted-pickup \
+  --sim-fixed-base \
+  --prompt "grab the bottle"
+```
+
+Launcher mở cửa sổ MuJoCo và bảng **Bottle / Robot Controls**. C++ deploy được
+xác nhận tự động chỉ khi `deploy.sh` báo simulation và interface loopback `lo`.
+Robot giữ cố định vị trí thân và tất cả khớp trên mặt đất ngay khi mở.
+Chỉ khi bấm **Start GR00T**, hệ thống mới chuẩn bị SONIC và chuyển điều khiển
+dần trong 2 giây; sau đó hỗ trợ khởi động tự tắt. Không cần bấm `9`.
+Khóa tư thế chỉ áp dụng khi chờ/reset, không áp dụng trong lúc nắm/nâng.
+
+**Chế độ gắp tại bàn dùng cả `--sim-assisted-pickup --sim-fixed-base`.**
+Đế/pelvis được cố định bằng ràng buộc MuJoCo; các khớp không tham gia gắp giữ
+tư thế chờ. Bộ hiệu chỉnh eo và cánh tay phải dùng ba lần
+nhận diện RGB-D ổn định, bán kính chai và chiều cao bàn để tính tâm mục tiêu,
+tiếp cận, khép ngón và nâng. Overlay **ASSISTED PICKUP - RGB-D + IK** hiển thị
+giai đoạn thực tế. Chai được nâng bằng tiếp xúc vật lý, không gắn vào tay.
+Server GR00T vẫn nhận ảnh/trạng thái và trả dự đoán để theo dõi; chế độ hỗ trợ
+giữ token đứng của SONIC, còn quỹ đạo gắp được bộ điều khiển RGB-D/IK thực thi.
+Đây là chế độ gắp hỗ trợ với đế cố định, không phải đánh giá checkpoint tự gắp.
+Chạy hỗ trợ nhưng bỏ `--sim-fixed-base` sẽ dùng robot tự do; khả năng giữ
+thăng bằng trong chế độ đó chưa ổn định.
+Nếu bỏ `--sim-assisted-pickup` (và `--sim-fixed-base`), lệnh cũ chỉ dùng quỹ đạo checkpoint và điều kiện khép ngón;
+điều kiện khép ngón không tự đưa tay đến chai.
+
+Launcher bật bù mô-men trọng lực/Coriolis của MuJoCo cho vai, khuỷu và cổ tay.
+SONIC gửi `tau_ff=0`; với Kp thấp, tay có thể võng đáng kể so với góc yêu cầu.
+Bù này cộng `qfrc_bias` vào mô-men các khớp tay, giữ nguyên `q/dq` do SONIC
+yêu cầu và giới hạn lực của simulator. Không áp dụng cho chân, eo hoặc robot
+thật. Overlay **Arm gravity compensation** ghi ON/OFF. Để so sánh hành vi cũ,
+thêm `--no-sim-arm-gravity-compensation` vào launcher.
+
+Bù mô-men riêng lẻ chỉ sửa việc bám lệnh. Trong chế độ hỗ trợ nắm ở trên,
+tọa độ RGB-D còn được dùng để hiệu chỉnh tiếp cận; không truyền XYZ vào GR00T.
+
+YOLO11n chạy trên CPU trong tmux window **vision**, tự đọc camera ngay khi
+simulation mở, kể cả trước khi bấm Start. Ảnh camera trực tiếp xuất
+hiện ở góc phải trên cửa sổ MuJoCo, cập nhật độc lập với YOLO (không chờ
+suy luận 2 Hz). Khung xanh YOLO dùng kết quả gần nhất, có tuổi nhận diện
+riêng và tự ẩn sau 750 ms; đây không phải tracking liên tục. Dòng `Camera | age`
+cho biết tuổi ảnh theo mili giây; quá 1 giây hiển thị `STALE CAMERA`.
+Tọa độ nhận diện vẫn cập nhật theo detector; ô thông tin bên trái và bảng điều khiển
+hiển thị **Detector surface XYZ / YOLO surface** cùng confidence.
+
+## Thao tác
+
+Sau khi nâng chai thành công (`success`), nút **Lower / Place on table**
+(Hạ xuống / Đặt lên bàn) sẽ bật. Bấm một lần để robot hạ chậm về tư thế nắm
+trên bàn, giữ ngón tay khép cho tới khi có tiếp xúc đỡ giữa chai và mặt bàn,
+rồi mở ngón trong 2 giây. Sau khi xác nhận chai đứng trên bàn, robot tự
+lùi bàn tay khỏi chai (`retreat`), thu cánh tay và eo về tư thế lúc bắt đầu
+(`return_home`), rồi giữ nguyên tại `complete`. Không cần bấm thêm nút;
+Reset vẫn có thể ngắt quá trình. Khi đạt `complete`, nút **Start GR00T**
+sáng lại: bấm để nhận diện và gắp chai tại vị trí vừa đặt, không cần Reset.
+Lượt mới xóa mục tiêu cũ và chờ ảnh nhận diện mới; giữ nguyên cảnh và vị trí
+chai. Trong lúc đang gắp/đặt/thu tay, Start vẫn bị khóa.
+Nếu hết quỹ đạo hạ mà chai chưa chạm bàn, robot dò xuống chậm 3 mm/s,
+tối đa thêm 2 cm, và dừng ngay khi có tiếp xúc đỡ. Nếu vẫn không có tiếp xúc,
+hệ thống giữ tay khép và báo lỗi thay vì thả chai.
+Nút này dành cho `--sim-assisted-pickup`; Reset vẫn có thể ngắt thao tác.
+Khởi động lại simulation sau khi cập nhật code để thấy nút mới.
+
+Để đặt sang vị trí khác, nhập **Place destination X/Y** ngay phía trên nút
+**Lower / Place on table**, rồi bấm nút này. Đây là tọa độ thế giới theo mét
+của tâm chai khi đặt; Z vẫn theo mặt bàn. Ví dụ gắp ở `(0.43, -0.11)` rồi
+đặt ở `(0.43, -0.08)`. Robot giữ chai khép trong tay, di chuyển ngang khi còn
+nâng cao, sau đó hạ và mở tay. Đích nằm ngoài bàn hoặc không giải được IK
+sẽ bị từ chối; giữ chai và chọn đích gần hơn. Xác nhận đặt thành công yêu cầu chai
+đứng trên bàn, sai lệch XY dưới 2.5 cm; không bảo đảm chính xác tuyệt đối.
+Hai ô vị trí chai ban đầu/Apply ở trên vẫn chỉ dùng đặt cảnh trước Start.
+Đích đặt xuống không thay đổi tọa độ chai dùng cho Reset.
+
+1. Nhập **X**, **Y** theo mét, dùng dấu chấm thập phân. Bấm
+   **Apply X/Y / Reset bottle** để đặt/dựng lại chai.
+2. Bấm **Start GR00T**. Robot giữ tư thế trong khi chờ SONIC sẵn sàng, chuyển
+   điều khiển dần rồi lấy ảnh mới để suy luận và xác định mục tiêu nắm.
+3. Bấm **Reset robot + bottle** để dừng suy luận, loại bỏ động tác còn tồn,
+   đưa robot về tư thế/địa điểm khởi động và dựng chai tại X/Y đã chọn.
+   Sau reset, robot chờ lần bấm Start tiếp theo. Reset này đặt lại cả đồng hồ
+   simulation.
+4. Để đổi X/Y khi robot đang chạy, bấm Reset trước. Đóng riêng bảng điều khiển
+   không tắt simulation; bấm **F2** trong cửa sổ MuJoCo để mở lại.
+
+Sau mỗi Reset, mục tiêu nhận diện, tiến trình nắm/nâng, vận tốc và hàng đợi
+hành động cũ được xóa. X/Y đã chọn của chai được giữ lại để lặp lượt thử.
+Muốn thử vị trí mới: **Reset → nhập X/Y → Apply X/Y → Start**. Bộ hiệu chỉnh
+ước lượng lại mục tiêu từ camera mỗi lượt. Vị trí phải nằm trong tầm tay phải
+và nhìn thấy được; nằm trên bàn chưa chắc đã nằm trong tầm với.
+Có thể đặt vị trí ngay trong lệnh khởi động bằng cách thêm
+`--sim-bottle-xy 0.40 -0.15`. Reset vẫn giữ X/Y đã chọn; khi mở bảng điều khiển,
+các ô X/Y hiển thị đúng vị trí này.
+
+Đã kiểm thử camera + server với chế độ hỗ trợ/đế cố định tại ba vị trí
+`(0.43, -0.11)`, `(0.40, -0.15)` và `(0.46, -0.08)` m: chai được giữ bằng
+tiếp xúc ngón tay và nâng tối thiểu lần lượt khoảng **18.2, 18.2 và 13.5 cm**
+trong giai đoạn giữ. Báo cáo nằm ở `outputs/assisted_audit/final_live_*.json`.
+Đây là các vị trí đã đo, không bảo đảm mọi điểm trên bàn đều gắp được.
+
+Phím tắt trong cửa sổ MuJoCo: **F5** reset robot + chai, **F6** Start.
+**R** chỉ dựng lại chai ở X/Y đã chọn, giữ robot và đồng hồ; nên dừng lượt chạy
+trước khi dùng R. Luồng terminal `k`, `i`, `p` vẫn được hỗ trợ, nhưng bảng điều
+khiển xử lý trình tự bắt đầu và reset đầy đủ hơn.
+
+X/Y được kiểm tra để thân chai nằm trong mặt bàn. Với scene hiện tại:
+X từ **0.276 đến 0.724 m**, Y từ **-0.424 đến 0.424 m**.
+Z lúc đặt chai cố định **0.801 m** tại tâm hình trụ thân chai, mặt bàn cao
+**0.700 m**. Khi vật lý chạy, chai có thể đổ hoặc được nâng nên Z đo được
+thực tế sẽ thay đổi. Các thay đổi X/Y chỉ tồn tại trong phiên simulation;
+khởi động lại đọc vị trí từ XML hoặc `--sim-bottle-xy` nếu được truyền vào.
+
+## Các tọa độ hiển thị
+
+Overlay trong MuJoCo và bảng điều khiển cập nhật liên tục:
+
+- **Bottle centre / Bottle MuJoCo**: tâm thân chai do MuJoCo cung cấp.
+- **Right wrist**, **Left wrist**: gốc khung tọa độ hai cổ tay,
+  không phải đầu ngón tay hay tâm vùng kẹp.
+- Tất cả dùng hệ tọa độ thế giới, đơn vị mét: +X hướng về phía trước của robot
+  lúc khởi động, -Y về phía tay phải.
+  +Y hướng về phía tay trái, +Z hướng lên. Xoay góc nhìn MuJoCo không đổi
+  các trục này; khi robot quay người, hướng trước của robot có thể khác +X.
+- **Ground support** cho biết hỗ trợ đang bật lúc chờ/reset hay đã tắt.
+- **Published actions** tăng khi VLA gửi hành động tới SONIC.
+- **Detector surface XYZ / YOLO surface**: tọa độ nhận diện ước lượng bằng
+  YOLO11n từ RGB, kết hợp depth camera và thông số camera để đổi sang hệ thế giới.
+  Đây là một điểm nhìn thấy trên bề mặt gần tâm khung nhận diện, **không phải
+  tâm thân chai**. Vì vậy Z có thể khác 0.801 m, kể cả khi chai đứng trên bàn.
+- **YOLO bottle confidence**: độ tin cậy nhận diện lớp `bottle`; ngưỡng mặc định
+  0.25. Chấm đỏ trong ảnh camera là điểm dùng để ước lượng XYZ.
+
+Checkpoint hiện tại xuất `motion_token` và lệnh tay, **không xuất tọa độ XYZ,
+bounding box hoặc kết quả detect chai riêng**. Dòng **GR00T detected XYZ** vì
+vậy ghi `unavailable in checkpoint output`. Tọa độ từ detector mới được ghi
+riêng với nguồn **YOLO**, không được gắn nhãn GR00T. Detector không đọc body ID
+hay vị trí chai thật; input của nó là RGB, depth và thông số camera. Khi không
+bật `--sim-assisted-pickup`, tọa độ YOLO chỉ để quan sát/xác nhận có chai.
+Chế độ khép tay theo khoảng
+cách bên dưới dùng hình học MuJoCo làm điều kiện khép ngón, nhưng vẫn không
+đưa XYZ vào policy làm tọa độ mục tiêu.
+Nút Start bắt đầu suy luận từ ảnh mới; không có bước xác nhận detect XYZ riêng.
+Các thao tác giao diện này không bảo đảm checkpoint gắp/nâng chai thành công.
+
+Nếu không thấy chai, có che khuất hoặc mất camera, tọa độ detector bị xóa và
+hiện trạng thái `not_detected`, `waiting` hoặc `stale`; không dùng lại XYZ cũ.
+YOLO vẫn có thể nhận diện sai hoặc điểm depth nằm trên vật che phía trước.
+
+Để tắt detector và ảnh depth, thêm `--no-bottle-detection` vào lệnh launcher.
+Kết quả mới nhất được lưu ở `outputs/bottle_detector/latest.json`.
+Nguồn model và API: [Ultralytics YOLO11](https://docs.ultralytics.com/models/yolo11/),
+[Predict](https://docs.ultralytics.com/modes/predict/).
+
+Nếu camera ngắt hoặc ảnh quá cũ, VLA tự tạm dừng thay vì tiếp tục động tác cũ.
+Kiểm tra pane inference rồi bấm Reset và Start để chạy lại.
+
+Các nhãn giao diện dùng tiếng Anh vì Tk trong môi trường WSL hiện tại chỉ có
+font bitmap không hiển thị đầy đủ tiếng Việt.
+
+## Khép tay theo tâm vùng nắm và hai trục X/Y
+
+Phần này mô tả chế độ cũ khi **không bật `--sim-assisted-pickup`**.
+Chế độ hỗ trợ ở lệnh đầu trang thay thế bộ kích hoạt này bằng tiếp cận theo X,
+khép ngón và nâng, có kiểm tra tiếp xúc đối diện và giữ chai trong 3 giây.
+
+Lệnh launcher `--sim` với detector đang bật tự dùng khoảng hở Y **2 cm** và
+sai số X **±5 mm**. Thêm `--sim-grasp-distance 0` để dùng lại lệnh tay GR00T.
+
+Điểm tham chiếu là **tâm vùng nắm giữa bàn tay**, site
+`right_hand_grasp_center`, gắn cố định vào `right_wrist_yaw_link` tại tọa độ
+cục bộ `(0.120, 0.050, 0.000) m` của bàn tay Dex3 hiện tại. Đây là điểm quy ước
+trong khoảng ôm vật của bàn tay. Tọa độ thế giới được tính bằng
+`grasp_world = wrist_world + wrist_rotation @ grasp_local`.
+Không dùng đầu ngón tay, trọng tâm khối lượng COM hay gốc cổ tay làm điều kiện.
+Gập các ngón không làm điểm tham chiếu này di chuyển trong khung bàn tay.
+Offset này dành cho hình học Dex3; nếu thay bàn tay cần hiệu chỉnh site theo
+vùng nắm của bàn tay mới.
+
+**Chấm xanh** trong cửa sổ MuJoCo đánh dấu điểm đang kiểm tra. Marker thuộc
+site group 5, không có khối lượng/va chạm và bị ẩn khỏi ảnh camera đầu vào GR00T.
+Bảng điều khiển và overlay **GRASP CENTRE - X/Y** hiển thị XYZ của điểm này,
+X error, Y surface gap, ngưỡng và trạng thái chờ/khép/giữ.
+Dòng **Wrist origin** là gốc cổ tay, khác điểm nắm; không so trực tiếp tọa độ
+cổ tay với tâm chai để kết luận tay đã tới vật.
+
+Sau Start và nhận diện chai bằng YOLO, hai điều kiện phải đúng cùng lúc:
+
+- `abs(grasp_center.x - bottle_body_center.x) <= 0.005 m`.
+- Khoảng hở từ tâm vùng nắm đến bề mặt thân chai theo Y còn **0 đến 0.02 m**.
+
+Với chai đứng, tại X trùng và Z trong thân chai,
+`Y_gap = abs(grasp_center.y - bottle_center.y) - bottle_radius`.
+Bán kính chai **2.5 cm**, nên khoảng hở 2 cm tương ứng chênh lệch Y với tâm chai
+**4.5 cm**. Ví dụ chai `(0.430, -0.110, 0.801)`, điểm nắm tại
+`(0.430, -0.155, 0.840)` đạt ngưỡng. Khi chai có độ nghiêng, phép đo dùng
+hướng hình trụ hiện tại. X/Z ngoài tiết diện thân chai hiện `--` và không khép.
+
+Điều kiện hiện tại là **tiếp cận ngang theo Y**: X trùng chai, Y còn hở 2 cm.
+Nếu muốn **tiếp cận từ trước robot theo X**, điều kiện tương ứng sẽ là
+Y trùng chai, X còn hở 2 cm. Ví dụ cùng chai ở trên, điểm nắm
+`(0.385, -0.110, 0.840)` cách bề mặt 2 cm theo X. Đây là cách đối chiếu trục,
+không phải một chế độ tự đổi hướng trong code. Cả hai cách đều cần điểm nắm
+nằm trong chiều cao thân chai; đổi X/Y không sửa được quỹ đạo tay còn xa hoặc
+cao hơn thân chai. Ngưỡng khép ngón chỉ quyết định thời điểm nắm, không đặt
+tọa độ mục tiêu cho cánh tay.
+
+Tay phải giữ mở trước ngưỡng, khép dần trong **0.3 giây** khi đạt cả hai điều
+kiện, rồi giữ khép tới Reset. Chai nghiêng quá 30 độ không kích hoạt.
+Nhận diện được ghi nhớ trong lượt để việc tay che camera không làm mất xác
+nhận; Reset hoặc đặt lại chai xóa xác nhận này.
+
+Nguồn khoảng cách là hình học MuJoCo; YOLO chỉ xác nhận có chai. GR00T/SONIC
+vẫn điều khiển quỹ đạo thân/cánh tay/nâng. Ô **SONIC grasp (FK)** hiển thị vị trí
+điểm nắm theo lệnh khớp SONIC tại vị trí thân hiện tại; **Grasp tracking error**
+cho biết bàn tay thực tế lệch bao xa so với lệnh. Đây là tọa độ tính bằng FK,
+không phải tọa độ mục tiêu XYZ do GR00T xuất.
+Nếu cả lệnh và vị trí thực đều thiếu X, điều kiện khép không tự đưa cánh tay tới
+chai. Nếu lệnh đã tới nhưng tay thực chưa tới, cần xử lý việc bám lệnh khớp.
+
+**Không dùng chế độ ngưỡng cũ để chạy bài gắp/nâng/đặt chai đã kiểm thử.**
+Hai tham số `--sim-grasp-distance 0.02 --sim-grasp-x-tolerance 0.005`
+chỉ kiểm tra thời điểm khép ngón; chúng không bật hiệu chỉnh tiếp cận hay nâng.
+Để chạy bài gắp tại bàn, dùng lệnh ở đầu tài liệu có cả
+`--sim-assisted-pickup --sim-fixed-base`. Nút Lower cũng cần chế độ hỗ trợ này.
+
+Log `proximity_grasp_trigger` ghi `grasp_center_world_m`, `x_error_m`,
+`y_surface_gap_m` và nguồn phép đo. COM khối lượng chỉ còn là dữ liệu chẩn
+đoán riêng, không được dùng để kích hoạt nắm. Khi chạy robot thật hoặc tắt
+detector, launcher không bật bộ điều khiển khép tay bổ sung này.
+
+
+<a id="standalone-pickup"></a>
+
+## Demo gắp độc lập
+
+# Assisted blue bottle pickup in MuJoCo
+
+Run from the repository root:
+
+```bash
+.venv_sim/bin/python gear_sonic/scripts/run_blue_bottle_pickup.py
+```
+
+This opens an independent MuJoCo demo and automatically approaches, closes the
+right Dex3 hand, lifts the blue bottle, and holds it. Close the viewer to finish.
+No GR00T server, SONIC process, DDS, tmux launcher, or keyboard commands are needed.
+It does not connect to a physical robot.
+
+This is an **assisted inverse-kinematics grasp**, using the bottle pose from
+MuJoCo. It is not a successful evaluation of the GR00T checkpoint. The pelvis is
+anchored to the world to stabilize manipulation. The bottle remains a free body
+and is held through physical finger contacts and friction, with no hand-object
+weld, object teleportation, or external lifting force.
+
+The CloudWalk checkpoint's training dataset uses Inspire FTP hands:
+https://huggingface.co/datasets/cloudwalk-research/gr00t-g1-grab-bottle-right-hand-v2
+The scene uses Dex3. Converting normalized grip level to a Dex3 closed pose does
+not reproduce Inspire grasp geometry or reach/grip timing. A task-trained Dex3
+checkpoint or a separately validated VLA/IK hybrid is needed for autonomous
+vision-conditioned pickup with this embodiment.
+
+The demo solves wrist position and orientation with waist pitch and the right
+arm, applies PD joint control with gravity compensation, gradually closes the
+hand, and lifts 18 cm. Joint limits and actuator effort limits remain enforced.
+The initial arm pregrasp pose is set before simulation begins. Current grasp
+geometry is tuned for this scene's cylindrical bottle, not arbitrary objects.
+
+Validation and video recording:
+
+```bash
+MUJOCO_GL=egl .venv_sim/bin/python gear_sonic/scripts/run_blue_bottle_pickup.py \
+  --headless --record
+```
+
+Outputs are written to `outputs/blue_bottle_pickup/`: `report.json`,
+`third_person.mp4`, `ego_view.mp4`, and images of the held bottle. Success requires
+at least 12 cm lift throughout a 3-second hold and persistent contact from both
+thumb and index/middle fingers. Reports contain actual bottle/wrist coordinates
+and finger contacts, not model-predicted object coordinates.
+
+Small workspace perturbations can be checked using `--bottle-offset X Y` in
+meters. IK raises an error if it cannot reach the requested grasp pose.
+
+
+<a id="checkpoint-notes"></a>
+
+## Checkpoint và adapter: thông tin đối chiếu
+
+# CloudWalk checkpoint and Inspire FTP compatibility
+
+The local `~/models/g1_sonic_grab_bottle` identifies itself as a deployment export
+of a 4-GPU, batch-64, 10k-step run. It is not the official v2 `checkpoint-20000`
+(6-GPU, batch-48 training recipe). Both have the same embodiment name; that does
+not imply identical training or interchangeable hand kinematics.
+
+Official v2 source:
+https://huggingface.co/cloudwalk-research/gr00t-n17-g1-grab-bottle-rh-210ep-v2-finetune
+Dataset:
+https://huggingface.co/datasets/cloudwalk-research/gr00t-g1-grab-bottle-right-hand-v2
+
+The official weights are stored separately at
+`checkpoints/cloudwalk_g1_bottle_v2/checkpoint-20000`. The existing weights are
+not modified. Audit tensor headers, shard completeness and hand statistics:
+
+```bash
+.venv_inference/bin/python gear_sonic/scripts/check_cloudwalk_checkpoint.py \
+  checkpoints/cloudwalk_g1_bottle_v2/checkpoint-20000
+```
+
+After stopping the existing policy server on port 5550, start the official one:
+
+```bash
+bash gear_sonic/scripts/run_cloudwalk_policy_server.sh
+```
+
+The server still emits motion tokens plus Inspire FTP hand channels. This is not
+an Inspire hand simulator. The experimental `--inspire-ftp-hands` client option
+maps aggregate grip intent to a Dex3 pose; it does not emulate the original hand.
+
+Native deployment still requires the CloudWalk `InspireFTPGripMapper` (or a
+validated equivalent) and an Inspire-compatible simulator/DDS bridge. The
+official Unitree repository does provide a G1 Inspire FTP URDF and meshes:
+https://github.com/unitreerobotics/unitree_ros/blob/master/robots/g1_description/g1_29dof_rev_1_0_with_inspire_hand_FTP.urdf
+The hand URDFs also define passive finger mimic joints. These must be preserved
+as constraints in MuJoCo; replacing a filename does not convert the current
+seven-motor Dex3 bridge into the six-motor Inspire interface. The CloudWalk repository
+linked in the dataset (`cloudwalk-research/GR00T-WholeBodyControl`) returned 404
+when inspected. The two supplied NVIDIA repositories contain the server and
+Dex3 control stack. Isaac-GR00T includes RoboCasa references to `InspireRightHand`
+for Fourier GR1, which do not establish the correct G1 RH56DFTP mount or channel
+mapping. Upstream compatibility discussion:
+https://github.com/NVlabs/GR00T-WholeBodyControl/issues/121
+
+Do not reinterpret seven FTP channels as seven Dex3 joint angles or rename the
+Dex3 scene as Inspire. Needed next: original hand model + mapper, or task data
+and fine-tuning collected with the actual Dex3 embodiment.
+
+The official model card also reports grasp anticipation even with an absent
+bottle; successful reach motion alone is not proof of reliable object detection.
+The simulation task must be evaluated closed loop after hand compatibility is
+resolved. Neither checkpoint download nor a successful server query demonstrates
+physical pickup.
+
+## Recorded-input verification
+
+`outputs/input_audit/training_inference.json` records calls to the running
+checkpoint-20000 server using synchronized RGB frames and joint states from
+episode 0 of the training dataset. At frame 480, the source grip begins at 0.30
+and reaches 1.00 in the next 40 frames; the model predicts 0.307 to 1.00.
+At frame 500, source grip begins at 0.70; the model predicts 0.676 to 1.00.
+This checks the server's ability to emit a closing sequence without sending any
+action to the robot. It does not demonstrate simulated pickup.
+
+`outputs/input_audit/input_ablation.json` contains three inference trials per
+combination of recorded/live image and recorded/live body state. Grip predictions
+vary, and even a simulation image without the bottle in view can elicit closing
+with recorded grasp-phase body state. Therefore neither reaching nor closing is
+evidence of object detection. The experiment cannot attribute failure to only
+the image or only the body state.
+
+The model card's success rates describe the physical G1 + Inspire stack, not
+this MuJoCo scene. Preserve that distinction when evaluating a port.
+
+## Bottle position and manual reset
+
+The blue bottle's initial body position in `scene_43dof.xml` is
+`0.43 -0.11 0.801` metres, 5 cm closer to the initial robot position than before.
+Restart the simulation stack to load XML/Python changes and reconnect deploy;
+the policy server does not need restarting.
+
+Focus the MuJoCo window and press **R** to restore only the bottle's initial
+position and upright orientation, with zero object velocity. The reset is
+queued onto the physics thread and does not reset the robot, controls, or clock.
+To repeat a trial, first send **i** + Enter in the keyboard publisher pane to
+pause the policy and return to the initial open-hand pose, then press **R** in
+MuJoCo and send **p** + Enter in the keyboard pane to resume inference. The
+MuJoCo key is separate from the keyboard publisher's policy controls.
+
+
+<a id="disk-cleanup"></a>
+
+## Dọn dung lượng đã thực hiện
+
+Đã xóa **6.828 GiB** dung lượng file được cấp phát trong WSL:
+
+- Cache model gốc `~/.cache/huggingface/hub/models--nvidia--GR00T-N1.7-3B`:
+  job hiện tại dùng checkpoint CloudWalk v10 nằm riêng trong `checkpoints/`.
+- Log `.jsonl`, log xoay vòng và `.log` không còn được process mở trong `outputs/`.
+- Log Xet không dùng và file ảnh/trạng thái/log test Inspire tạm trong `/tmp`.
+
+Giữ checkpoint v10, cache `Cosmos-Reason2-2B` (backbone được code nạp khi khởi động),
+cache SONIC, model/mesh, ba môi trường Python, Git, bản sao repository để push,
+report JSON và toàn bộ mã chạy simulation. Muốn dùng model GR00T gốc lại sau này
+thì phải tải lại cache vừa dọn.
+
+### Thu hồi dung lượng vật lý trên ổ C
+
+WSL dùng VHDX; dung lượng trống trong Linux không nhất thiết lập tức trở thành
+dung lượng trống ổ C. Đĩa đã xác định từ registry cho `Ubuntu-22.04`:
+
+```text
+C:\Users\Admin\AppData\Local\wsl\{78e88ad2-f985-4dce-b6a5-f381f0e1894a}\ext4.vhdx
+```
+
+Khi đã lưu công việc và dừng simulation/server, chạy trong WSL:
+
+```bash
+sudo fstrim -v /
+```
+
+Sau đó **đóng VS Code WSL**, mở PowerShell **Run as administrator**:
+
+```powershell
+wsl --shutdown
+diskpart
+```
+
+Trong cửa sổ `DISKPART>`:
+
+```text
+select vdisk file="C:\Users\Admin\AppData\Local\wsl\{78e88ad2-f985-4dce-b6a5-f381f0e1894a}\ext4.vhdx"
+compact vdisk
+exit
+```
+
+Đường dẫn trên chỉ dành cho máy này; trên máy khác phải xác định lại. Đĩa cần
+ở trạng thái detached hoặc attached read-only khi compact. Không dùng lệnh
+`clean`, `format`, hoặc xóa file VHDX. Chưa thực hiện shutdown/compact trong lượt
+dọn này vì thao tác đó ngắt chính phiên WSL đang làm việc.
+
+Nguồn: [Microsoft: WSL disk space](https://learn.microsoft.com/en-us/windows/wsl/disk-space),
+[Microsoft: compact vdisk](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/compact-vdisk).
+
+### Danh sách đã xóa
+
+```text
+6594.61 MiB  /home/huy123/.cache/huggingface/hub/models--nvidia--GR00T-N1.7-3B
+5.73 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/grasp_center_final/reach.jsonl
+11.19 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/grasp_center_final/actions.jsonl
+7.79 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/arm_compensation_trial/reach.jsonl
+16.67 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/arm_compensation_trial/actions.jsonl
+17.16 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/fixed_actions.jsonl
+1.25 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/stationary_actions.jsonl
+7.59 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/stationary_reach.jsonl
+16.09 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/final_reach.jsonl
+23.90 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/far_reach.jsonl
+12.07 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/startup_actions.jsonl
+9.47 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/live_actions.jsonl
+29.15 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/fixed_reach.jsonl
+6.82 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/live_reach.jsonl
+11.26 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/final_actions.jsonl
+32.00 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/final_actions.jsonl.1
+13.06 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/near_reach.jsonl
+32.00 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/final_reach.jsonl.1
+32.00 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/fixed_actions.jsonl.1
+10.34 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/assisted_audit/startup_reach.jsonl
+7.18 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/hand_com_final/reach.jsonl
+8.58 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/hand_com_final/actions.jsonl
+0.00 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/input_audit/meta/tasks.jsonl
+8.05 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/cleanup_validation/reach.jsonl
+14.46 MiB  /home/huy123/projects/GR00T-WholeBodyControl/outputs/cleanup_validation/actions.jsonl
+0.00 MiB  /home/huy123/.cache/huggingface/xet/logs/xet_20261006T223854206+0700_1557.log
+17.45 MiB  /home/huy123/.cache/huggingface/xet/logs/xet_20261004T100427718+0700_3031.log
+0.08 MiB  /home/huy123/.cache/huggingface/xet/logs/xet_20261002T005802981+0700_8771.log
+10.45 MiB  /home/huy123/.cache/huggingface/xet/logs/xet_20261004T101720620+0700_7135.log
+13.71 MiB  /tmp/native_resume_reach.jsonl
+21.18 MiB  /tmp/native_live_reach.jsonl
+0.01 MiB  /tmp/native_trial.log
+0.00 MiB  /tmp/native_observation_tests.log
+0.00 MiB  /tmp/native_hold_grid.log
+0.00 MiB  /tmp/native_longhold_regression.log
+0.00 MiB  /tmp/native_grid2.log
+0.00 MiB  /tmp/native_resume_launch.log
+0.01 MiB  /tmp/native_case2.log
+0.00 MiB  /tmp/native_regression2.log
+0.00 MiB  /tmp/native_regression.log
+0.00 MiB  /tmp/native_final_physics.log
+0.00 MiB  /tmp/native_launch2.log
+0.01 MiB  /tmp/native_trial3.log
+0.00 MiB  /tmp/native_ready_launch.log
+0.00 MiB  /tmp/native_regression3.log
+0.01 MiB  /tmp/native_trial2.log
+0.00 MiB  /tmp/native_launch.log
+0.01 MiB  /tmp/native_trial4.log
+0.00 MiB  /tmp/native_grid.log
+0.00 MiB  /tmp/native_release_2360.npz
+0.00 MiB  /tmp/native_release_2080.npz
+0.00 MiB  /tmp/native_release_1320.npz
+0.00 MiB  /tmp/native_release_2160.npz
+0.00 MiB  /tmp/native_release_1600.npz
+0.00 MiB  /tmp/native_release_2320.npz
+0.00 MiB  /tmp/native_release_1720.npz
+0.00 MiB  /tmp/native_release_1440.npz
+0.00 MiB  /tmp/native_release_2040.npz
+0.00 MiB  /tmp/native_release_1400.npz
+0.00 MiB  /tmp/native_release_1240.npz
+0.00 MiB  /tmp/native_release_1640.npz
+0.00 MiB  /tmp/native_release_1920.npz
+0.00 MiB  /tmp/native_release_1880.npz
+0.00 MiB  /tmp/native_release_1520.npz
+0.00 MiB  /tmp/native_release_1680.npz
+0.00 MiB  /tmp/native_release_1120.npz
+0.00 MiB  /tmp/native_release_2280.npz
+0.00 MiB  /tmp/native_release_1840.npz
+0.00 MiB  /tmp/native_release_1160.npz
+0.00 MiB  /tmp/native_release_2240.npz
+0.00 MiB  /tmp/native_release_1280.npz
+0.00 MiB  /tmp/native_release_2120.npz
+0.00 MiB  /tmp/native_release_2200.npz
+0.00 MiB  /tmp/native_end.npz
+0.00 MiB  /tmp/native_release_1560.npz
+0.00 MiB  /tmp/native_release_2000.npz
+0.00 MiB  /tmp/native_release_1480.npz
+0.00 MiB  /tmp/native_release_1960.npz
+0.00 MiB  /tmp/native_release_1360.npz
+0.00 MiB  /tmp/native_release_2400.npz
+0.00 MiB  /tmp/native_release_1200.npz
+0.20 MiB  /tmp/native_release.png
+0.04 MiB  /tmp/native_panel.png
+```
+
+<a id="current-code-patch"></a>
+
+## Bản vá code hiện tại
+
+Bản vá so với Git HEAD `323211ddd5012b0f377e3ee5bc788d634765191e`; bao gồm file mới chưa commit.
+Chỉ chứa mã chạy và test; không chứa model binary hoặc môi trường Python.
+Không áp lại patch lên workspace hiện tại vì các sửa đổi đã nằm trong file.
+
+```diff
+diff --git a/gear_sonic/scripts/launch_inference.py b/gear_sonic/scripts/launch_inference.py
+index 00504a1..e167715 100644
+--- a/gear_sonic/scripts/launch_inference.py
++++ b/gear_sonic/scripts/launch_inference.py
+@@ -55,6 +55,8 @@ def _bootstrap_venv():
+         pass
+ 
+     repo_root = Path(__file__).resolve().parent.parent.parent
++    if config.sim_native_inspire and not (repo_root / 'models/g1_inspire_ftp/g1_inspire_ftp_pickup.xml').exists():
++        errors.append('Build native hands first: .venv_sim/bin/python gear_sonic/scripts/prepare_inspire_ftp_sim.py')
+     venv_python = repo_root / ".venv_inference" / "bin" / "python"
+     if not venv_python.exists():
+         print(
+@@ -104,6 +106,9 @@ class InferenceLaunchConfig:
+     sim_assisted_pickup: bool = False
+     """Use RGB-D target correction for right-arm approach, physical grasp and lift; SONIC controls the body. Simulation only."""
+ 
++    sim_native_inspire: bool = False
++    """Native Inspire FTP hand model, requires assisted fixed-base simulation."""
++
+     sim_fixed_base: bool = False
+     """Anchor the simulated pelvis and hold unused joints for repeatable table pickup. Requires --sim-assisted-pickup."""
+ 
+@@ -211,6 +216,8 @@ def _check_prerequisites(config: InferenceLaunchConfig):
+     errors = []
+     if config.sim_bottle_xy is not None and not config.sim:
+         errors.append("--sim-bottle-xy requires --sim")
++    if config.sim_native_inspire and not (config.sim and config.sim_assisted_pickup and config.sim_fixed_base):
++        errors.append('--sim-native-inspire requires --sim --sim-assisted-pickup --sim-fixed-base')
+     if config.sim_fixed_base and (not config.sim or not config.sim_assisted_pickup):
+         errors.append("--sim-fixed-base requires --sim --sim-assisted-pickup")
+     if config.sim_assisted_pickup and (not config.sim or not config.bottle_detection):
+@@ -363,6 +370,9 @@ def main(config: InferenceLaunchConfig):
+         print(f"  Hand closure:    grasp-region centre | X +/- {config.sim_grasp_x_tolerance * 100:.1f} cm | "
+               f"Y surface gap <= {config.sim_grasp_distance * 100:.1f} cm")
+     if config.sim:
++        print(f"  Hand model:      {'Native Inspire FTP (six motors per hand)' if config.sim_native_inspire else 'Dex3'}")
++        if config.sim_native_inspire:
++            print("  Policy state:    approximate Dex3-compatible projection; native hand motion owned by assisted controller")
+         print(f"  Arm feedforward: {'ON' if config.sim_arm_gravity_compensation else 'OFF'} (MuJoCo bias)")
+         if config.sim_assisted_pickup:
+             print("  Pickup:          RGB-D waist/right-arm correction; SONIC standing token")
+@@ -403,6 +413,8 @@ def main(config: InferenceLaunchConfig):
+             sim_cmd += " --arm-gravity-compensation"
+         if config.sim_assisted_pickup:
+             sim_cmd += " --assisted-pickup"
++        if config.sim_native_inspire:
++            sim_cmd += " --native-inspire"
+         if config.sim_fixed_base:
+             sim_cmd += " --fixed-pickup-base"
+         if config.sim_bottle_xy is not None:
+diff --git a/gear_sonic/scripts/run_cloudwalk_policy_server.sh b/gear_sonic/scripts/run_cloudwalk_policy_server.sh
+index 14ab162..a7d38e6 100755
+--- a/gear_sonic/scripts/run_cloudwalk_policy_server.sh
++++ b/gear_sonic/scripts/run_cloudwalk_policy_server.sh
+@@ -11,8 +11,8 @@ if [[ ! -x "$SERVER_PYTHON" || ! -f "$SERVER_SCRIPT" ]]; then
+     exit 1
+ fi
+ "$REPO_ROOT/.venv_inference/bin/python" "$SCRIPT_DIR/check_cloudwalk_checkpoint.py" "$CHECKPOINT"
+-echo "Starting CloudWalk checkpoint: $CHECKPOINT. Simulator uses Dex3."
+-echo "Native Inspire FTP hand deployment has not been implemented or validated."
++echo "Starting CloudWalk checkpoint: $CHECKPOINT. Select the simulated hand in launch_inference.py."
++echo "Native Inspire simulation requires --sim-native-inspire --sim-assisted-pickup --sim-fixed-base. Hardware deployment is not validated."
+ cd "$REPO_ROOT/../Isaac-GR00T"
+ # Version checks are unrelated to inference and can stall startup on WSL when
+ # the update endpoint is unreachable.
+diff --git a/gear_sonic/scripts/run_sim_loop.py b/gear_sonic/scripts/run_sim_loop.py
+index d3ca87f..604a7f4 100644
+--- a/gear_sonic/scripts/run_sim_loop.py
++++ b/gear_sonic/scripts/run_sim_loop.py
+@@ -53,6 +53,11 @@ def main(config: ArgsConfig):
+     if config.fixed_pickup_base and not config.assisted_pickup:
+         raise ValueError("Fixed pickup base requires assisted pickup")
+     wbc_config["FIXED_PICKUP_BASE"] = config.fixed_pickup_base
++    if config.native_inspire:
++        if not config.fixed_pickup_base or not config.assisted_pickup:
++            raise ValueError('Native Inspire requires --assisted-pickup --fixed-pickup-base')
++        wbc_config.update(NATIVE_INSPIRE=True, NUM_HAND_JOINTS=6, NUM_HAND_MOTORS=0, ASYNC_IMAGE_RENDER=True,
++            ROBOT_SCENE='models/g1_inspire_ftp/g1_inspire_ftp_pickup.xml')
+     wbc_config["BOTTLE_XY"] = config.bottle_xy
+     wbc_config["GROUND_START"] = config.ground_start
+     wbc_config["ENABLE_DEPTH_PUBLISH"] = config.enable_depth_publish
+diff --git a/gear_sonic/scripts/run_vla_inference.py b/gear_sonic/scripts/run_vla_inference.py
+index d7bb646..76fe75c 100644
+--- a/gear_sonic/scripts/run_vla_inference.py
++++ b/gear_sonic/scripts/run_vla_inference.py
+@@ -267,6 +267,14 @@ def prepare_observation_from_sensors(
+             print("[DEBUG] prepare_observation: waiting for state msg..", flush=True)
+         return None
+ 
++    state_msg = dict(state_msg)
++    hand_format = state_msg.pop('hand_state_format', 'dex3_joint_radians')
++    if hand_format == 'inspire_ftp_motor_radians':
++        from gear_sonic.utils.mujoco_sim.inspire_hand import dex3_observation_from_inspire
++        for side in ('left', 'right'):
++            state_msg[side+'_hand_q'] = dex3_observation_from_inspire(state_msg[side+'_hand_q'], side)
++    elif hand_format != 'dex3_joint_radians':
++        raise ValueError(f'Unsupported hand observation format: {hand_format}')
+     state_msg = {key: np.asarray(value).copy() for key, value in state_msg.items()}
+ 
+     cam_img = camera_msg["images"]["ego_view"]
+diff --git a/gear_sonic/tests/test_observation_freshness.py b/gear_sonic/tests/test_observation_freshness.py
+index 6541d91..2d0efd9 100644
+--- a/gear_sonic/tests/test_observation_freshness.py
++++ b/gear_sonic/tests/test_observation_freshness.py
+@@ -44,6 +44,23 @@ class ObservationFreshnessTest(unittest.TestCase):
+         np.testing.assert_array_equal(obs["state"]["projected_gravity"], [[[0., 0., -1.]]])
+         self.assertEqual(obs["language"]["annotation.human.task_description"], [["grab the bottle"]])
+ 
++    def test_native_inspire_frame_projects_six_motors_without_index_error(self):
++        robot = instantiate_g1_robot_model(waist_location="lower_and_upper_body")
++        class Camera:
++            def read(self):
++                return {"capture_monotonic": time.monotonic(),
++                        "images": {"ego_view": np.zeros((480, 640, 3), dtype=np.uint8)},
++                        "timestamps": {"ego_view": time.time()},
++                        "robot_state": {"body_q": [0.] * 29,
++                            "left_hand_q": [1., 0., 0., 0., 0., 0.],
++                            "right_hand_q": [1., .4, .85, .85, .85, .85],
++                            "hand_state_format": "inspire_ftp_motor_radians",
++                            "base_quat": [1., 0., 0., 0.]}}
++        observation = prepare_observation_from_sensors(Camera(), None, robot, "grab the bottle")
++        self.assertIsNotNone(observation)
++        self.assertTrue(np.isfinite(observation['q']).all())
++        self.assertEqual(observation['state']['right_hand'].shape[-1], 7)
++
+     def test_inflight_result_keeps_pre_reset_request_boundary(self):
+         requests, results = queue.Queue(), queue.Queue()
+         stop, busy, entered, release = (threading.Event() for _ in range(4))
+diff --git a/gear_sonic/utils/mujoco_sim/assisted_pickup.py b/gear_sonic/utils/mujoco_sim/assisted_pickup.py
+index 978236a..d5022f9 100644
+--- a/gear_sonic/utils/mujoco_sim/assisted_pickup.py
++++ b/gear_sonic/utils/mujoco_sim/assisted_pickup.py
+@@ -1,4 +1,4 @@
+-"""Opt-in visual pickup correction for the simulated right arm and Dex3 hand.
++"""Opt-in visual pickup correction for the simulated right arm and Dex3/Inspire hand.
+ 
+ SONIC retains the floating base, legs and left arm. This controller only
+ sets joint torques; it never attaches, teleports or applies a force to the bottle.
+@@ -36,8 +36,13 @@ class AssistedPickup:
+         self.arm = np.array([m.joint('waist_pitch_joint').id] + [m.joint('right_' + name + '_joint').id for name in
+             ('shoulder_pitch', 'shoulder_roll', 'shoulder_yaw', 'elbow',
+              'wrist_roll', 'wrist_pitch', 'wrist_yaw')])
+-        self.hand = np.array([m.joint('right_hand_' + name + '_joint').id for name in
+-            ('thumb_0', 'thumb_1', 'thumb_2', 'middle_0', 'middle_1', 'index_0', 'index_1')])
++        self.native_inspire = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, 'right_thumb_1_joint') >= 0
++        if self.native_inspire:
++            from gear_sonic.scripts.prepare_inspire_ftp_sim import HAND_NAMES
++            self.hand = np.array([m.joint('right_'+n+'_joint').id for n in HAND_NAMES])
++        else:
++            self.hand = np.array([m.joint('right_hand_' + name + '_joint').id for name in
++                ('thumb_0', 'thumb_1', 'thumb_2', 'middle_0', 'middle_1', 'index_0', 'index_1')])
+         self.arm_q, self.arm_v = m.jnt_qposadr[self.arm], m.jnt_dofadr[self.arm]
+         self.hand_q, self.hand_v = m.jnt_qposadr[self.hand], m.jnt_dofadr[self.hand]
+         self.site = m.site('right_hand_grasp_center').id
+@@ -49,6 +54,13 @@ class AssistedPickup:
+         self.scratch = mujoco.MjData(m)
+         self.jp, self.jr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
+         self.closed = np.array([0., -.7, -.7, 1., 1.5, 1., 1.5])
++        if self.native_inspire:
++            # Opposition stays preshaped during release; flexion must hold the
++            # bottle for long waits, not only the first few seconds after lift.
++            self.closed = np.array([1.0, .5, .95, .95, .95, .95])
++        self.opened = np.zeros(len(self.hand))
++        if self.native_inspire:
++            self.opened[0] = 1.0
+         self.lower = m.jnt_range[self.arm, 0].copy() + .002
+         self.upper = m.jnt_range[self.arm, 1].copy() - .002
+         # Keep the right upper arm outside the torso. The redundant 8-DOF IK
+@@ -75,6 +87,7 @@ class AssistedPickup:
+         self.fraction = 0.
+         self.placed = False
+         self.place_xy = None
++        self.lost_grasp_since = None
+ 
+     def lower_to_table(self, data, xy=None):
+         if not self.active or self.stage != 'success':
+@@ -129,7 +142,7 @@ class AssistedPickup:
+         self.active = True
+         self.arm_target = data.qpos[self.arm_q].copy()
+         self.home_arm_q = self.arm_target.copy()
+-        self.hand_target = np.zeros(7)
++        self.hand_target = self.opened.copy()
+         self.start_pos = data.site_xpos[self.site].copy()
+         self.start_rot = data.xmat[self.wrist].reshape(3, 3).copy()
+         self.set_stage('detecting', data.time)
+@@ -144,7 +157,8 @@ class AssistedPickup:
+             a, b = self.model.geom_bodyid[[contact.geom1, contact.geom2]]
+             if a == self.bottle or b == self.bottle:
+                 name = self.model.body(int(b if a == self.bottle else a)).name
+-                if name.startswith('right_hand_'):
++                if name.startswith('right_hand_') or (self.native_inspire and name.startswith(
++                        ('right_thumb', 'right_index', 'right_middle', 'right_ring', 'right_little'))):
+                     names.add(name)
+         return sorted(names)
+ 
+@@ -244,7 +258,7 @@ class AssistedPickup:
+             # once the bottle is inside the grasp region. Closing fully while
+             # still advancing makes the index finger sweep the bottle away.
+             self.fraction = float(.05 * advance + .95 * np.clip((elapsed - 1.5) / 1.5, 0., 1.))
+-            self.hand_target = self.closed * self.fraction
++            self.hand_target = self.opened + (self.closed - self.opened) * self.fraction
+             if elapsed > 3.5 and opposed:
+                 self.table_arm_q = self.arm_target.copy()
+                 self.set_stage('lift', data.time)
+@@ -286,8 +300,14 @@ class AssistedPickup:
+             else:
+                 position = self.release_pos.copy()
+                 rotation = self.release_rot.copy()
++                if self.native_inspire:
++                    # Uncurling FTP fingers extend forward. Withdraw the palm
++                    # as they clear the supported bottle instead of sweeping it.
++                    clearance = float(np.clip((elapsed - .5) / 1.5, 0., 1.))
++                    clearance = clearance*clearance*(3.-2.*clearance)
++                    position += np.array([-.05, -.02, 0.]) * clearance
+                 self.fraction = float(1. - np.clip(elapsed / 2., 0., 1.)) if self.stage == 'release' else 0.
+-                self.hand_target = self.closed * self.fraction
++                self.hand_target = self.opened + (self.closed - self.opened) * self.fraction
+                 if self.stage == 'release' and elapsed > 3.:
+                     upright = data.xmat[self.bottle].reshape(3, 3)[2, 2] > .95
+                     self.placed = bool(self.table_support(data) and upright
+@@ -297,7 +317,8 @@ class AssistedPickup:
+                     self.set_stage('retreat' if self.placed else 'failed', data.time)
+         elif self.stage == 'retreat':
+             t = np.clip(elapsed / 2., 0., 1.)
+-            position = self.release_pos + np.array([-.09, 0., .025]) * t*t*(3.-2.*t)
++            release_offset = np.array([-.05, -.02, 0.]) if self.native_inspire else np.zeros(3)
++            position = self.release_pos + release_offset + np.array([-.09, 0., .025]) * t*t*(3.-2.*t)
+             rotation = self.release_rot.copy()
+             self.solve(data, position, rotation)
+             if elapsed > 3.:
+@@ -325,6 +346,16 @@ class AssistedPickup:
+                 lift = float(data.xpos[self.bottle, 2] - self.centre_height)
+                 self.min_hold_lift = min(self.min_hold_lift, lift)
+                 self.hold_contacts &= opposed
++                if self.stage == 'success':
++                    if lift < .12 or not opposed:
++                        if self.lost_grasp_since is None:
++                            self.lost_grasp_since = float(data.time)
++                        elif data.time - self.lost_grasp_since > .3:
++                            self.success = False
++                            self.error = 'Bottle slipped from grasp; placement cancelled. Reset to retry.'
++                            self.set_stage('failed', data.time)
++                    else:
++                        self.lost_grasp_since = None
+                 if self.stage == 'hold' and elapsed > 3.:
+                     self.success = bool(self.min_hold_lift > .12 and self.hold_contacts)
+                     if not self.success:
+@@ -338,11 +369,11 @@ class AssistedPickup:
+         indices = [int(np.flatnonzero(body_joint_indices == joint)[0]) for joint in self.arm]
+         body[indices] = (80. * (self.arm_target - data.qpos[self.arm_q])
+                          - 3. * data.qvel[self.arm_v] + data.qfrc_bias[self.arm_v])
+-        hand[7:] = (8. * (self.hand_target - data.qpos[self.hand_q])
++        hand[len(self.hand):] = (8. * (self.hand_target - data.qpos[self.hand_q])
+                     - .2 * data.qvel[self.hand_v] + data.qfrc_bias[self.hand_v])
+ 
+     def snapshot(self):
+-        return {'stage': self.stage, 'active': self.active, 'success': self.success, 'placed': self.placed,
++        return {'hand_model': 'inspire_ftp' if self.native_inspire else 'dex3', 'stage': self.stage, 'active': self.active, 'success': self.success, 'placed': self.placed,
+                 'place_target_xy_m': self.place_xy.tolist() if self.place_xy is not None else None,
+                 'target_source': 'YOLO RGB-D surface + known radius and tabletop height',
+                 'target_center_world_m': self.target.tolist() if self.target is not None else None,
+diff --git a/gear_sonic/utils/mujoco_sim/base_sim.py b/gear_sonic/utils/mujoco_sim/base_sim.py
+index c3004ac..531ada8 100644
+--- a/gear_sonic/utils/mujoco_sim/base_sim.py
++++ b/gear_sonic/utils/mujoco_sim/base_sim.py
+@@ -75,6 +75,7 @@ class DefaultEnv:
+         self._preview_capture = 0.
+         self._viewer_overlay_worker = None
+ 
++        self.native_inspire = self.config.get("NATIVE_INSPIRE", False)
+         self.init_scene()
+         self.assisted_pickup = None
+         if self.config.get('ASSISTED_PICKUP', False):
+@@ -218,6 +219,11 @@ class DefaultEnv:
+                 joint = self.mj_model.joint(f'{side}_shoulder_pitch_joint')
+                 self.initial_qpos[int(joint.qposadr[0])] = pitch
+             self.initial_qpos[int(self.mj_model.joint('left_elbow_joint').qposadr[0])] = .3
++            if self.native_inspire:
++                for side in ('left', 'right'):
++                    self.initial_qpos[self.mj_model.joint(side+'_shoulder_pitch_joint').qposadr[0]] = .35
++                    self.initial_qpos[self.mj_model.joint(side+'_elbow_joint').qposadr[0]] = -.7
++                    self.initial_qpos[self.mj_model.joint(side+'_thumb_1_joint').qposadr[0]] = 1.0
+             self.mj_data.qpos[:] = self.initial_qpos
+             mujoco.mj_forward(self.mj_model, self.mj_data)
+ 
+@@ -314,6 +320,10 @@ class DefaultEnv:
+             elif "right_hand" in name:
+                 self.right_hand_index.append(i)
+ 
++        if self.native_inspire:
++            from gear_sonic.scripts.prepare_inspire_ftp_sim import HAND_NAMES
++            self.left_hand_index = [self.mj_model.joint('left_'+n+'_joint').id for n in HAND_NAMES]
++            self.right_hand_index = [self.mj_model.joint('right_'+n+'_joint').id for n in HAND_NAMES]
+         assert len(self.body_joint_index) == self.robot.NUM_JOINTS
+         assert len(self.left_hand_index) == self.robot.NUM_HAND_JOINTS
+         assert len(self.right_hand_index) == self.robot.NUM_HAND_JOINTS
+@@ -325,6 +335,14 @@ class DefaultEnv:
+         self.left_hand_index = np.array(self.left_hand_index)
+         self.right_hand_index = np.array(self.right_hand_index)
+ 
++        # Passive finger joints mean joint IDs are no longer actuator IDs.
++        self.joint_actuator = {int(j): i for i, j in enumerate(self.mj_model.actuator_trnid[:, 0])}
++        self.body_actuator = np.array([self.joint_actuator[int(j)] for j in self.body_joint_index])
++        self.left_hand_actuator = np.array([self.joint_actuator[int(j)] for j in self.left_hand_index])
++        self.right_hand_actuator = np.array([self.joint_actuator[int(j)] for j in self.right_hand_index])
++        if self.native_inspire:
++            self.torques = np.zeros(self.mj_model.nu)
++            self.torque_limit = self.mj_model.actuator_forcerange[:, 1].copy()
+         if mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, "red_bottle") >= 0:
+             from gear_sonic.utils.mujoco_sim.object_reset import BottlePlacement
+             self.bottle_placement = BottlePlacement(self.mj_model, self.mj_data)
+@@ -378,12 +396,12 @@ class DefaultEnv:
+                         + self.unitree_bridge.low_cmd.motor_cmd[i].kp
+                         * (
+                             self.unitree_bridge.low_cmd.motor_cmd[i].q
+-                            - self.mj_data.qpos[self.body_joint_index[i] + self.qpos_offset - 1]
++                            - self.mj_data.qpos[self.mj_model.jnt_qposadr[self.body_joint_index[i]]]
+                         )
+                         + self.unitree_bridge.low_cmd.motor_cmd[i].kd
+                         * (
+                             self.unitree_bridge.low_cmd.motor_cmd[i].dq
+-                            - self.mj_data.qvel[self.body_joint_index[i] + self.qvel_offset - 1]
++                            - self.mj_data.qvel[self.mj_model.jnt_dofadr[self.body_joint_index[i]]]
+                         )
+                     )
+         if (self.config.get("ARM_GRAVITY_COMPENSATION", False)
+@@ -470,12 +488,12 @@ class DefaultEnv:
+                     + self.unitree_bridge.left_hand_cmd.motor_cmd[i].kp
+                     * (
+                         self.unitree_bridge.left_hand_cmd.motor_cmd[i].q
+-                        - self.mj_data.qpos[self.left_hand_index[i] + self.qpos_offset - 1]
++                        - self.mj_data.qpos[self.mj_model.jnt_qposadr[self.left_hand_index[i]]]
+                     )
+                     + self.unitree_bridge.left_hand_cmd.motor_cmd[i].kd
+                     * (
+                         self.unitree_bridge.left_hand_cmd.motor_cmd[i].dq
+-                        - self.mj_data.qvel[self.left_hand_index[i] + self.qvel_offset - 1]
++                        - self.mj_data.qvel[self.mj_model.jnt_dofadr[self.left_hand_index[i]]]
+                     )
+                 )
+                 right_hand_torques[i] = (
+@@ -483,12 +501,12 @@ class DefaultEnv:
+                     + self.unitree_bridge.right_hand_cmd.motor_cmd[i].kp
+                     * (
+                         self.unitree_bridge.right_hand_cmd.motor_cmd[i].q
+-                        - self.mj_data.qpos[self.right_hand_index[i] + self.qpos_offset - 1]
++                        - self.mj_data.qpos[self.mj_model.jnt_qposadr[self.right_hand_index[i]]]
+                     )
+                     + self.unitree_bridge.right_hand_cmd.motor_cmd[i].kd
+                     * (
+                         self.unitree_bridge.right_hand_cmd.motor_cmd[i].dq
+-                        - self.mj_data.qvel[self.right_hand_index[i] + self.qvel_offset - 1]
++                        - self.mj_data.qvel[self.mj_model.jnt_dofadr[self.right_hand_index[i]]]
+                     )
+                 )
+         return np.concatenate((left_hand_torques, right_hand_torques))
+@@ -533,19 +551,19 @@ class DefaultEnv:
+         )
+         obs["secondary_imu_vel"] = pose[7:13]
+ 
+-        obs["body_q"] = self.mj_data.qpos[self.body_joint_index + 7 - 1]
+-        obs["body_dq"] = self.mj_data.qvel[self.body_joint_index + 6 - 1]
+-        obs["body_ddq"] = self.mj_data.qacc[self.body_joint_index + 6 - 1]
+-        obs["body_tau_est"] = self.mj_data.actuator_force[self.body_joint_index - 1]
++        obs["body_q"] = self.mj_data.qpos[self.mj_model.jnt_qposadr[self.body_joint_index]]
++        obs["body_dq"] = self.mj_data.qvel[self.mj_model.jnt_dofadr[self.body_joint_index]]
++        obs["body_ddq"] = self.mj_data.qacc[self.mj_model.jnt_dofadr[self.body_joint_index]]
++        obs["body_tau_est"] = self.mj_data.actuator_force[self.body_actuator]
+         if self.num_hand_dof > 0:
+-            obs["left_hand_q"] = self.mj_data.qpos[self.left_hand_index + self.qpos_offset - 1]
+-            obs["left_hand_dq"] = self.mj_data.qvel[self.left_hand_index + self.qvel_offset - 1]
+-            obs["left_hand_ddq"] = self.mj_data.qacc[self.left_hand_index + self.qvel_offset - 1]
+-            obs["left_hand_tau_est"] = self.mj_data.actuator_force[self.left_hand_index - 1]
+-            obs["right_hand_q"] = self.mj_data.qpos[self.right_hand_index + self.qpos_offset - 1]
+-            obs["right_hand_dq"] = self.mj_data.qvel[self.right_hand_index + self.qvel_offset - 1]
+-            obs["right_hand_ddq"] = self.mj_data.qacc[self.right_hand_index + self.qvel_offset - 1]
+-            obs["right_hand_tau_est"] = self.mj_data.actuator_force[self.right_hand_index - 1]
++            obs["left_hand_q"] = self.mj_data.qpos[self.mj_model.jnt_qposadr[self.left_hand_index]]
++            obs["left_hand_dq"] = self.mj_data.qvel[self.mj_model.jnt_dofadr[self.left_hand_index]]
++            obs["left_hand_ddq"] = self.mj_data.qacc[self.mj_model.jnt_dofadr[self.left_hand_index]]
++            obs["left_hand_tau_est"] = self.mj_data.actuator_force[self.left_hand_actuator]
++            obs["right_hand_q"] = self.mj_data.qpos[self.mj_model.jnt_qposadr[self.right_hand_index]]
++            obs["right_hand_dq"] = self.mj_data.qvel[self.mj_model.jnt_dofadr[self.right_hand_index]]
++            obs["right_hand_ddq"] = self.mj_data.qacc[self.mj_model.jnt_dofadr[self.right_hand_index]]
++            obs["right_hand_tau_est"] = self.mj_data.actuator_force[self.right_hand_actuator]
+         obs["time"] = self.mj_data.time
+         return obs
+ 
+@@ -599,11 +617,11 @@ class DefaultEnv:
+             hand_torques = 8. * (self.initial_qpos[qa] - self.mj_data.qpos[qa]) - .2 * self.mj_data.qvel[va] + self.mj_data.qfrc_bias[va]
+         if self.assisted_pickup is not None and not self.standby:
+             self.assisted_pickup.apply_torques(self.mj_data, body_torques, hand_torques, self.body_joint_index)
+-        # -1: actuator array is 0-based while joint indices from the model are 1-based
+-        self.torques[self.body_joint_index - 1] = body_torques
++        # Map active joints to motor slots; passive Inspire joints have no slot.
++        self.torques[self.body_actuator - (6 if self.config["FREE_BASE"] else 0)] = body_torques
+         if self.num_hand_dof > 0:
+-            self.torques[self.left_hand_index - 1] = hand_torques[: self.num_hand_dof]
+-            self.torques[self.right_hand_index - 1] = hand_torques[self.num_hand_dof :]
++            self.torques[self.left_hand_actuator - (6 if self.config["FREE_BASE"] else 0)] = hand_torques[: self.num_hand_dof]
++            self.torques[self.right_hand_actuator - (6 if self.config["FREE_BASE"] else 0)] = hand_torques[self.num_hand_dof :]
+ 
+         self.torques = np.clip(self.torques, -self.torque_limit, self.torque_limit)
+ 
+@@ -811,11 +829,13 @@ class DefaultEnv:
+                 # Pair proprioception with the image exposure, not with the
+                 # later time at which rendering/network delivery completes.
+                 state = {
+-                    "body_q": self.mj_data.qpos[self.body_joint_index + self.qpos_offset - 1].tolist(),
+-                    "left_hand_q": self.mj_data.qpos[self.left_hand_index + self.qpos_offset - 1].tolist(),
+-                    "right_hand_q": self.mj_data.qpos[self.right_hand_index + self.qpos_offset - 1].tolist(),
++                    "body_q": self.mj_data.qpos[self.mj_model.jnt_qposadr[self.body_joint_index]].tolist(),
++                    "left_hand_q": self.mj_data.qpos[self.mj_model.jnt_qposadr[self.left_hand_index]].tolist(),
++                    "right_hand_q": self.mj_data.qpos[self.mj_model.jnt_qposadr[self.right_hand_index]].tolist(),
+                     "base_quat": self.mj_data.qpos[3:7].tolist(),
+                 }
++                if self.native_inspire:
++                    state['hand_state_format'] = 'inspire_ftp_motor_radians'
+                 self.image_publish_process.submit(self.mj_data, robot_state=state)
+             return {}
+         render_caches = {}
+diff --git a/gear_sonic/utils/mujoco_sim/configs.py b/gear_sonic/utils/mujoco_sim/configs.py
+index 618adaf..29989d3 100644
+--- a/gear_sonic/utils/mujoco_sim/configs.py
++++ b/gear_sonic/utils/mujoco_sim/configs.py
+@@ -354,6 +354,9 @@ class SimLoopConfig(BaseConfig):
+     assisted_pickup: bool = False
+     """Correct right-arm pickup with RGB-D bottle target; requires simulation controls and detector."""
+ 
++    native_inspire: bool = False
++    """Native six-motor Inspire FTP hands, fixed-base assisted simulation only."""
++
+     fixed_pickup_base: bool = False
+     """Anchor pelvis and hold unused joints during the assisted table task; simulation only."""
+ 
+diff --git a/gear_sonic/utils/mujoco_sim/palm_proximity.py b/gear_sonic/utils/mujoco_sim/palm_proximity.py
+index f850194..92718b9 100644
+--- a/gear_sonic/utils/mujoco_sim/palm_proximity.py
++++ b/gear_sonic/utils/mujoco_sim/palm_proximity.py
+@@ -15,7 +15,8 @@ def cylinder_surface_distance(point, radius, half_height):
+ 
+ class PalmProximity:
+     def __init__(self, model):
+-        mesh = model.mesh("right_hand_palm_link").id
++        native = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_MESH, "right_base_link") >= 0
++        mesh = model.mesh("right_base_link" if native else "right_hand_palm_link").id
+         self.palm = next(i for i in range(model.ngeom)
+             if model.geom_type[i] == mujoco.mjtGeom.mjGEOM_MESH
+             and model.geom_dataid[i] == mesh and (model.geom_contype[i] or model.geom_conaffinity[i]))
+diff --git a/gear_sonic/utils/mujoco_sim/reach_diagnostics.py b/gear_sonic/utils/mujoco_sim/reach_diagnostics.py
+index 661c274..aa8a4f0 100644
+--- a/gear_sonic/utils/mujoco_sim/reach_diagnostics.py
++++ b/gear_sonic/utils/mujoco_sim/reach_diagnostics.py
+@@ -14,10 +14,7 @@ def measure_reach(model, data, joint_targets=None):
+     bottle = model.body('red_bottle').id
+     wrist = model.body('right_wrist_yaw_link').id
+     grasp_site = model.site('right_hand_grasp_center').id
+-    palm_mesh = model.mesh('right_hand_palm_link').id
+-    palm = next(i for i in range(model.ngeom) if model.geom_type[i] == mujoco.mjtGeom.mjGEOM_MESH
+-                and model.geom_dataid[i] == palm_mesh
+-                and (model.geom_contype[i] or model.geom_conaffinity[i]))
++    palm = PalmProximity(model).palm
+     def pose(d):
+         return {'wrist_world_m': d.xpos[wrist].tolist(),
+                 'grasp_center_world_m': d.site_xpos[grasp_site].tolist(),
+@@ -35,9 +32,12 @@ def measure_reach(model, data, joint_targets=None):
+     result['bottle_lift_from_initial_m'] = float(actual.xpos[bottle, 2] - model.qpos0[bottle_adr + 2])
+     bottle_geoms = [i for i in range(model.ngeom) if model.geom_bodyid[i] == bottle
+                     and (model.geom_contype[i] or model.geom_conaffinity[i])]
++    hand_bodies = {wrist}
++    for body in range(wrist + 1, model.nbody):
++        if int(model.body_parentid[body]) in hand_bodies:
++            hand_bodies.add(body)
+     hand_geoms = [i for i in range(model.ngeom)
+-                  if (model.body(int(model.geom_bodyid[i])).name.startswith('right_hand_')
+-                      or i == palm)
++                  if int(model.geom_bodyid[i]) in hand_bodies
+                   and (model.geom_contype[i] or model.geom_conaffinity[i])]
+     distances = [mujoco.mj_geomDistance(model, actual, a, b, 2.0, None)
+                  for a in bottle_geoms for b in hand_geoms]
+diff --git a/gear_sonic/scripts/prepare_inspire_ftp_sim.py b/gear_sonic/scripts/prepare_inspire_ftp_sim.py
+new file mode 100644
+index 0000000..c40893c
+--- /dev/null
++++ b/gear_sonic/scripts/prepare_inspire_ftp_sim.py
+@@ -0,0 +1,143 @@
++"""Build a separate G1 + native Inspire FTP scene from pinned Unitree URDFs.
++
++Downloads only model descriptions/meshes. Never starts a hardware connection.
++"""
++import argparse
++from concurrent.futures import ThreadPoolExecutor
++import copy
++import hashlib
++import json
++from pathlib import Path
++import tempfile
++import urllib.request
++import xml.etree.ElementTree as ET
++
++import mujoco
++
++REVISION = '5994d4faef0a9cadd3287f8de0199a67eeb2a259'
++BASE = f'https://raw.githubusercontent.com/unitreerobotics/unitree_ros/{REVISION}/robots/g1_description/'
++ROOT = Path(__file__).resolve().parents[2]
++URDF = 'g1_29dof_rev_1_0_with_inspire_hand_FTP.urdf'
++HAND_NAMES = ('thumb_1', 'thumb_2', 'index_1', 'middle_1', 'ring_1', 'little_1')
++
++
++def download(output):
++    output.mkdir(parents=True, exist_ok=True)
++    def fetch(relative):
++        path = output / relative
++        path.parent.mkdir(parents=True, exist_ok=True)
++        if not path.exists():
++            with urllib.request.urlopen(BASE + relative, timeout=60) as response:
++                blob = response.read()
++            temporary = path.with_suffix(path.suffix + '.download')
++            temporary.write_bytes(blob)
++            temporary.replace(path)
++        return path
++    source = fetch(URDF)
++    names = sorted({Path(m.get('filename')).name for m in ET.parse(source).findall('.//mesh')})
++    with ThreadPoolExecutor(max_workers=6) as pool:
++        paths = list(pool.map(fetch, ['meshes/' + name for name in names]))
++    manifest = {'repository': 'https://github.com/unitreerobotics/unitree_ros',
++        'revision': REVISION, 'files': {str(p.relative_to(output)): hashlib.sha256(p.read_bytes()).hexdigest()
++                                      for p in [source, *paths]}}
++    (output/'source.json').write_text(json.dumps(manifest, indent=2))
++    return source
++
++
++def build(source, output):
++    output.mkdir(parents=True, exist_ok=True)
++    urdf = ET.parse(source)
++    compiler = urdf.find('mujoco/compiler')
++    compiler.set('meshdir', str((source.parent/'meshes').resolve()))
++    # Preserve fixed palm/sensor link inertias. Fusing a fixed root into world
++    # otherwise discards its mass when a standalone hand is later attached.
++    compiler.set('fusestatic', 'false')
++    for mesh in urdf.findall('.//mesh'):
++        mesh.set('filename', Path(mesh.get('filename')).name)
++    with tempfile.TemporaryDirectory() as tmp:
++        converted = Path(tmp)/'g1.urdf'
++        urdf.write(converted)
++        imported = mujoco.MjModel.from_xml_path(str(converted))
++        mjcf = output/'g1_inspire_ftp.xml'
++        mujoco.mj_saveLastXML(str(mjcf), imported)
++    tree = ET.parse(mjcf)
++    root = tree.getroot()
++    root.set('model', 'G1 Inspire RH56DFTP - 41 active joints')
++    ET.SubElement(root, 'option', timestep='0.002', integrator='implicitfast')
++    pelvis = root.find("worldbody/body[@name='pelvis']")
++    pelvis.set('pos', '0 0 0.793')
++    ET.SubElement(pelvis, 'freejoint', name='floating_base_joint')
++    equality = root.find('equality')
++    if equality is None:
++        equality = ET.SubElement(root, 'equality')
++    # Explicit preview fixture. There is no standing/balance controller here.
++    ET.SubElement(equality, 'weld', name='preview_pelvis_fixture', body1='pelvis')
++    contact = ET.SubElement(root, 'contact')
++    for side in ('left', 'right'):
++        # Convex palm mesh overlaps the internal thumb hinge at zero angle.
++        # Exclude only this mechanical neighbour, keeping finger/object contacts.
++        ET.SubElement(contact, 'exclude', body1=side+'_base_link', body2=side+'_thumb_2')
++    actuators = ET.SubElement(root, 'actuator')
++    for joint in urdf.findall('joint'):
++        if joint.get('type') not in ('revolute', 'continuous'):
++            continue
++        name = joint.get('name')
++        mimic = joint.find('mimic')
++        if mimic is not None:
++            for old in list(equality):
++                if old.get('joint1') == name:
++                    equality.remove(old)
++            ET.SubElement(equality, 'joint', name=name+'_mimic', joint1=name,
++                joint2=mimic.get('joint'), polycoef=f"{mimic.get('offset', '0')} {mimic.get('multiplier', '1')} 0 0 0",
++                solref='0.004 1')
++        else:
++            hand = any(name == side+'_'+finger+'_joint' for side in ('left', 'right') for finger in HAND_NAMES)
++            limit = joint.find('limit')
++            effort = limit.get('effort')
++            ET.SubElement(actuators, 'position', name=name+'_act', joint=name,
++                kp='4' if hand else '150', kv='.08' if hand else '6',
++                forcelimited='true', forcerange=f'-{effort} {effort}',
++                ctrllimited='true', ctrlrange=f"{limit.get('lower')} {limit.get('upper')}")
++        mj_joint = root.find(f".//joint[@name='{name}']")
++        mj_joint.set('armature', '.001' if any(f in name for f in ('thumb', 'index', 'middle', 'ring', 'little')) else '.01')
++        mj_joint.set('damping', '.02')
++    # The hand's numerous welded tactile mesh pieces belong to one rigid link.
++    # Native MuJoCo contact filtering excludes welded bodies automatically.
++    scene = ET.parse(ROOT/'gear_sonic/data/robot_model/model_data/g1/scene_43dof.xml').getroot()
++    for section in ('visual', 'statistic'):
++        root.append(copy.deepcopy(scene.find(section)))
++    root.find('asset').extend(copy.deepcopy(list(scene.find('asset'))))
++    root.find('worldbody').extend(copy.deepcopy(list(scene.find('worldbody'))))
++    ET.indent(tree)
++    tree.write(mjcf)
++    model = mujoco.MjModel.from_xml_path(str(mjcf))
++    if model.nu != 41 or model.njnt != 55 or model.neq != 13:
++        raise ValueError(f'Unexpected topology: {model.nu=}, {model.njnt=}, {model.neq=}')
++    # Runtime variant uses torque actuators; DefaultEnv supplies PD control.
++    runtime = copy.deepcopy(root)
++    runtime.find("equality").remove(runtime.find("equality/weld[@name='preview_pelvis_fixture']"))
++    for actuator in runtime.find('actuator'):
++        actuator.tag = 'motor'
++        for key in ('kp', 'kv', 'ctrllimited', 'ctrlrange'):
++            actuator.attrib.pop(key, None)
++    torso = runtime.find(".//body[@name='torso_link']")
++    ET.SubElement(torso, 'camera', name='head_camera', pos='0.06 0 0.45', euler='0 -0.8 -1.57')
++    for side in ('left', 'right'):
++        wrist = runtime.find(f".//body[@name='{side}_wrist_yaw_link']")
++        ET.SubElement(wrist, 'site', name=side+'_hand_grasp_center',
++                      pos='0.165 0.045 0' if side == 'right' else '0.165 -0.045 0',
++                      size='.005', rgba='0 1 0 1', group='5')
++    runtime_path = output/'g1_inspire_ftp_pickup.xml'
++    ET.indent(runtime)
++    ET.ElementTree(runtime).write(runtime_path)
++    mujoco.MjModel.from_xml_path(str(runtime_path))
++    return mjcf
++
++
++if __name__ == '__main__':
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--output', type=Path, default=ROOT/'models/g1_inspire_ftp')
++    args = parser.parse_args()
++    source = download(args.output)
++    result = build(source, args.output)
++    print(f'Built {result}: 29 body + 12 active hand joints; 12 passive mimic joints.')
+diff --git a/gear_sonic/scripts/run_inspire_ftp_sim.py b/gear_sonic/scripts/run_inspire_ftp_sim.py
+new file mode 100644
+index 0000000..c8b678b
+--- /dev/null
++++ b/gear_sonic/scripts/run_inspire_ftp_sim.py
+@@ -0,0 +1,81 @@
++"""Preview native Inspire FTP hands on G1 (simulation only, no DDS/policy server).
++
++Space toggles both hands; L/R toggle a side; Backspace restores the scene.
++Position sliders in MuJoCo's Control panel expose all 41 active joints.
++"""
++import argparse
++from pathlib import Path
++import time
++import threading
++
++import mujoco
++import mujoco.viewer
++import numpy as np
++
++from gear_sonic.scripts.prepare_inspire_ftp_sim import HAND_NAMES, ROOT
++
++
++def initialize(model, data):
++    mujoco.mj_resetData(model, data)
++    home = {'left_shoulder_pitch_joint': -.3, 'right_shoulder_pitch_joint': -.3,
++            'left_elbow_joint': 1.1, 'right_elbow_joint': 1.1}
++    for name, value in home.items():
++        data.qpos[model.joint(name).qposadr[0]] = value
++    for i in range(model.nu):
++        joint = model.actuator_trnid[i, 0]
++        data.ctrl[i] = data.qpos[model.jnt_qposadr[joint]]
++    mujoco.mj_forward(model, data)
++
++
++def hand_actuators(model, side):
++    return np.array([model.actuator(side+'_'+name+'_joint_act').id for name in HAND_NAMES])
++
++
++def main(args):
++    if not args.scene.exists():
++        raise SystemExit('Run .venv_sim/bin/python gear_sonic/scripts/prepare_inspire_ftp_sim.py first.')
++    model = mujoco.MjModel.from_xml_path(str(args.scene))
++    data = mujoco.MjData(model)
++    initialize(model, data)
++    closed = {'left': False, 'right': False}
++    lock = threading.Lock()
++    reset = threading.Event()
++    def key(code):
++        with lock:
++            if code == 32:
++                closed['left'] = closed['right'] = not closed['right']
++            elif code in (ord('L'), ord('R')):
++                side = 'left' if code == ord('L') else 'right'
++                closed[side] = not closed[side]
++            elif code == 259:
++                reset.set()
++    print('Native Inspire FTP preview: SPACE both hands; L/R one hand; Backspace reset. Pelvis fixed.')
++    print('This preview does not connect to GR00T/SONIC or robot hardware.')
++    with mujoco.viewer.launch_passive(model, data, key_callback=key) as viewer:
++        viewer.cam.lookat[:] = [.1, 0, .9]
++        viewer.cam.distance = 2.
++        viewer.cam.azimuth = 130
++        viewer.cam.elevation = -15
++        last_view = 0.
++        while viewer.is_running():
++            start = time.monotonic()
++            with lock:
++                if reset.is_set():
++                    initialize(model, data)
++                    closed = {'left': False, 'right': False}
++                    reset.clear()
++                for side in closed:
++                    indices = hand_actuators(model, side)
++                    target = model.actuator_ctrlrange[indices, 1] * (.85 if closed[side] else 0.)
++                    data.ctrl[indices] += np.clip(target-data.ctrl[indices], -.0008, .0008)
++            mujoco.mj_step(model, data)
++            if start-last_view >= 1/60:
++                viewer.sync()
++                last_view = start
++            time.sleep(max(0., model.opt.timestep-(time.monotonic()-start)))
++
++
++if __name__ == '__main__':
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--scene', type=Path, default=ROOT/'models/g1_inspire_ftp/g1_inspire_ftp.xml')
++    main(parser.parse_args())
+diff --git a/gear_sonic/tests/test_inspire_ftp_model.py b/gear_sonic/tests/test_inspire_ftp_model.py
+new file mode 100644
+index 0000000..58ad78a
+--- /dev/null
++++ b/gear_sonic/tests/test_inspire_ftp_model.py
+@@ -0,0 +1,41 @@
++"""Topology/inertia and independent finger-control checks for the downloaded FTP model."""
++from pathlib import Path
++import unittest
++import mujoco
++import numpy as np
++from gear_sonic.scripts.run_inspire_ftp_sim import initialize, hand_actuators, ROOT
++
++SCENE = ROOT/'models/g1_inspire_ftp/g1_inspire_ftp.xml'
++
++@unittest.skipUnless(SCENE.exists(), 'Run prepare_inspire_ftp_sim.py to download native Inspire model')
++class InspireFTPModelTest(unittest.TestCase):
++    def test_native_topology_and_open_close(self):
++        model = mujoco.MjModel.from_xml_path(str(SCENE))
++        data = mujoco.MjData(model)
++        initialize(model, data)
++        self.assertEqual(model.nu, 41)
++        self.assertEqual(model.njnt, 55)  # 53 hinges + robot and bottle free joints
++        self.assertEqual(sum(model.eq_type == mujoco.mjtEq.mjEQ_JOINT), 12)
++        for side in ('left', 'right'):
++            self.assertAlmostEqual(float(model.body(side+'_base_link').mass[0]), .62266)
++        right = hand_actuators(model, 'right')
++        left = hand_actuators(model, 'left')
++        right_q = model.jnt_qposadr[model.actuator_trnid[right, 0]]
++        left_q = model.jnt_qposadr[model.actuator_trnid[left, 0]]
++        for step in range(3000):
++            target = model.actuator_ctrlrange[right, 1]*.5
++            data.ctrl[right] += np.clip(target-data.ctrl[right], -.0008, .0008)
++            mujoco.mj_step(model, data)
++        self.assertGreater(float(np.mean(data.qpos[right_q])), .2)
++        self.assertLess(float(np.max(np.abs(data.qpos[left_q]))), .1)
++        for _ in range(3000):
++            data.ctrl[right] += np.clip(-data.ctrl[right], -.0008, .0008)
++            mujoco.mj_step(model, data)
++        self.assertLess(float(np.max(np.abs(data.qpos[right_q]))), .1)
++        self.assertTrue(np.isfinite(data.qpos).all())
++        self.assertFalse(any(w.number for w in data.warning))
++        initialize(model, data)
++        np.testing.assert_array_equal(data.qvel, 0.)
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/gear_sonic/tests/test_native_inspire_pickup.py b/gear_sonic/tests/test_native_inspire_pickup.py
+new file mode 100644
+index 0000000..c3288c6
+--- /dev/null
++++ b/gear_sonic/tests/test_native_inspire_pickup.py
+@@ -0,0 +1,118 @@
++"""Contact-based Inspire pickup/place/repeat regression with controlled perception.
++
++No policy server/detector required. Synthetic RGB-D targets isolate physics;
++these tests must not be presented as learned-policy or live-perception success.
++"""
++from pathlib import Path
++from types import SimpleNamespace
++import unittest
++
++import mujoco
++import numpy as np
++
++from gear_sonic.utils.mujoco_sim.base_sim import DefaultEnv
++from gear_sonic.utils.mujoco_sim.configs import SimLoopConfig
++from gear_sonic.utils.mujoco_sim.inspire_hand import dex3_observation_from_inspire
++
++ROOT = Path(__file__).resolve().parents[2]
++SCENE = ROOT / 'models/g1_inspire_ftp/g1_inspire_ftp_pickup.xml'
++
++
++class NativeObservationTest(unittest.TestCase):
++    def test_projection_is_explicit_finite_and_does_not_modify_input(self):
++        measured = np.array([1., .2, .4, .5, .6, .7])
++        before = measured.copy()
++        for side in ('left', 'right'):
++            projected = dex3_observation_from_inspire(measured, side)
++            self.assertEqual(projected.shape, (7,))
++            self.assertTrue(np.isfinite(projected).all())
++        np.testing.assert_array_equal(measured, before)
++        with self.assertRaises(ValueError):
++            dex3_observation_from_inspire([0.] * 7, 'right')
++
++
++@unittest.skipUnless(SCENE.exists(), 'Build the native Inspire pickup model first')
++class NativeInspirePickupTest(unittest.TestCase):
++    def test_pickup_place_home_repeat_and_reset(self):
++        for xy, destination in (([.43, -.11], [.45, -.05]),
++                                ([.4, -.15], [.42, -.12]),
++                                ([.46, -.08], [.43, -.11]),
++                                ([.43, -.05], [.45, -.05])):
++            with self.subTest(xy=xy, destination=destination):
++                config = SimLoopConfig(enable_onscreen=False).load_wbc_yaml()
++                config.update(GROUND_START=True, ASSISTED_PICKUP=True, FIXED_PICKUP_BASE=True,
++                              NATIVE_INSPIRE=True, NUM_HAND_JOINTS=6, NUM_HAND_MOTORS=0,
++                              ROBOT_SCENE=str(SCENE))
++                env = DefaultEnv(config)
++                env.unitree_bridge = SimpleNamespace(PublishLowState=lambda _: None,
++                    joystick=None, low_cmd=None, low_cmd_received=False)
++                model, data, pickup = env.mj_model, env.mj_data, env.assisted_pickup
++                self.assertEqual(model.nu, 41)
++                self.assertEqual(len(pickup.hand), 6)
++                self.assertEqual(len(set(env.joint_actuator.values())), 41)
++                self.assertNotIn(pickup.bottle, model.eq_obj1id)
++                self.assertNotIn(pickup.bottle, model.eq_obj2id)
++                env.bottle_placement.reset(model, data, xy)
++                for _ in range(100):
++                    env.sim_step()
++                robot_q = np.r_[model.jnt_qposadr[env.body_joint_index],
++                                model.jnt_qposadr[env.left_hand_index], model.jnt_qposadr[env.right_hand_index]]
++                np.testing.assert_array_equal(data.qpos[robot_q], env.initial_qpos[robot_q])
++                env.begin_control_transition()
++
++                def grasp(centre_xy):
++                    pickup.start(data)
++                    for step in range(6000):
++                        pickup.update(data, {'status': 'detected',
++                            'world_point_m': [centre_xy[0]-.025, centre_xy[1], .85],
++                            'camera_position_world_m': [0., centre_xy[1], 1.2],
++                            'capture_monotonic': step // 20})
++                        env.sim_step()
++                        if pickup.stage in ('success', 'failed'):
++                            break
++                    self.assertTrue(pickup.success, pickup.snapshot())
++                    self.assertGreater(pickup.min_hold_lift, .12)
++                    np.testing.assert_array_equal(data.xfrc_applied[pickup.bottle], 0.)
++
++                grasp(xy)
++                # Users may leave a lifted bottle waiting before pressing Lower.
++                for _ in range(12000):  # 60 simulated seconds at 200 Hz
++                    pickup.update(data, {})
++                    env.sim_step()
++                    if pickup.stage == 'failed':
++                        break
++                self.assertEqual(pickup.stage, 'success', pickup.snapshot())
++                self.assertGreater(data.xpos[pickup.bottle, 2] - pickup.centre_height, .12)
++                self.assertTrue(pickup.lower_to_table(data, destination))
++                for _ in range(9000):
++                    pickup.update(data, {})
++                    env.sim_step()
++                    if pickup.stage in ('complete', 'failed'):
++                        break
++                self.assertEqual(pickup.stage, 'complete', pickup.snapshot())
++                self.assertTrue(pickup.placed)
++                self.assertTrue(pickup.table_support(data))
++                self.assertLess(np.linalg.norm(data.xpos[pickup.bottle, :2]-destination), .025)
++                self.assertGreater(data.xmat[pickup.bottle].reshape(3, 3)[2, 2], .95)
++                np.testing.assert_allclose(data.qpos[pickup.arm_q], pickup.home_arm_q, atol=.05)
++                # A fresh detector would observe the settled bottle, not the requested XY.
++                grasp(data.xpos[pickup.bottle, :2].copy())
++                self.assertFalse(any(w.number for w in data.warning))
++                # Inject loss of the held object: Lower must no longer be enabled.
++                env.bottle_placement.reset(model, data, xy)
++                for _ in range(100):
++                    pickup.update(data, {})
++                    env.sim_step()
++                self.assertEqual(pickup.stage, 'failed')
++                self.assertFalse(pickup.success)
++                self.assertFalse(pickup.lower_to_table(data, destination))
++                env.reset()
++                self.assertTrue(env.standby)
++                self.assertFalse(pickup.active)
++                self.assertEqual(pickup.stage, 'idle')
++                np.testing.assert_array_equal(data.qvel, 0.)
++                np.testing.assert_allclose(env.coordinate_snapshot()['bottle'], [*xy, .801])
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/gear_sonic/utils/mujoco_sim/inspire_hand.py b/gear_sonic/utils/mujoco_sim/inspire_hand.py
+new file mode 100644
+index 0000000..7afb450
+--- /dev/null
++++ b/gear_sonic/utils/mujoco_sim/inspire_hand.py
+@@ -0,0 +1,19 @@
++"""Simulation-only compatibility for native FTP hands and the legacy Dex3 policy schema.
++
++The VLA/SONIC transport still expects seven Dex3 angles per hand. This projection
++preserves measured flexion approximately; it is NOT a calibrated CloudWalk or
++hardware Inspire observation/action mapping. The native assisted controller owns
++all six real simulated motors, and never consumes projected Dex3 commands.
++"""
++import numpy as np
++
++
++def dex3_observation_from_inspire(joints, side):
++    q = np.asarray(joints, dtype=float)
++    if q.shape != (6,) or not np.isfinite(q).all() or side not in ('left', 'right'):
++        raise ValueError('Expected six finite native Inspire motor angles and a hand side')
++    # Native order: thumb opposition, thumb flexion, index, middle, ring, little.
++    flex = np.clip(q[1:4] / np.array([.5864, 1.4381, 1.4381]), 0., 1.)
++    thumb, index, middle = flex
++    right = np.array([0., -.7*thumb, -.7*thumb, middle, 1.5*middle, index, 1.5*index])
++    return right if side == 'right' else -right
+```
+
+<a id="legacy-wsl-snapshot"></a>
+
+## Bản chụp hướng dẫn WSL/code trước khi chuyển Inspire native
+
+Phần lưu trữ để đối chiếu và lấy bản vá ban đầu. Các mô tả “chỉ Dex3” ở đây
+không phải trạng thái native mới nhất; xem phần đầu tài liệu để chạy hiện tại.
+
 # Hướng dẫn WSL: Unitree G1 gắp, đặt chai và lặp lại
 
 Bản chụp mã nguồn: **11/10/2026**. Tài liệu có cả hướng dẫn và toàn bộ bản vá

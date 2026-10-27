@@ -14,10 +14,7 @@ def measure_reach(model, data, joint_targets=None):
     bottle = model.body('red_bottle').id
     wrist = model.body('right_wrist_yaw_link').id
     grasp_site = model.site('right_hand_grasp_center').id
-    palm_mesh = model.mesh('right_hand_palm_link').id
-    palm = next(i for i in range(model.ngeom) if model.geom_type[i] == mujoco.mjtGeom.mjGEOM_MESH
-                and model.geom_dataid[i] == palm_mesh
-                and (model.geom_contype[i] or model.geom_conaffinity[i]))
+    palm = PalmProximity(model).palm
     def pose(d):
         return {'wrist_world_m': d.xpos[wrist].tolist(),
                 'grasp_center_world_m': d.site_xpos[grasp_site].tolist(),
@@ -35,9 +32,12 @@ def measure_reach(model, data, joint_targets=None):
     result['bottle_lift_from_initial_m'] = float(actual.xpos[bottle, 2] - model.qpos0[bottle_adr + 2])
     bottle_geoms = [i for i in range(model.ngeom) if model.geom_bodyid[i] == bottle
                     and (model.geom_contype[i] or model.geom_conaffinity[i])]
+    hand_bodies = {wrist}
+    for body in range(wrist + 1, model.nbody):
+        if int(model.body_parentid[body]) in hand_bodies:
+            hand_bodies.add(body)
     hand_geoms = [i for i in range(model.ngeom)
-                  if (model.body(int(model.geom_bodyid[i])).name.startswith('right_hand_')
-                      or i == palm)
+                  if int(model.geom_bodyid[i]) in hand_bodies
                   and (model.geom_contype[i] or model.geom_conaffinity[i])]
     distances = [mujoco.mj_geomDistance(model, actual, a, b, 2.0, None)
                  for a in bottle_geoms for b in hand_geoms]

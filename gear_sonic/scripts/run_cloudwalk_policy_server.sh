@@ -11,8 +11,9 @@ if [[ ! -x "$SERVER_PYTHON" || ! -f "$SERVER_SCRIPT" ]]; then
     exit 1
 fi
 "$REPO_ROOT/.venv_inference/bin/python" "$SCRIPT_DIR/check_cloudwalk_checkpoint.py" "$CHECKPOINT"
-echo "Starting CloudWalk checkpoint: $CHECKPOINT. Simulator uses Dex3."
-echo "Native Inspire FTP hand deployment has not been implemented or validated."
+echo "Starting CloudWalk checkpoint: $CHECKPOINT. Select the simulated hand in launch_inference.py."
+echo "Learned-action simulation: launch_inference.py --sim --sim-policy-control (experimental Dex3 adapter)."
+echo "Native Inspire remains a separate assisted profile; hardware deployment is not validated."
 cd "$REPO_ROOT/../Isaac-GR00T"
 # Version checks are unrelated to inference and can stall startup on WSL when
 # the update endpoint is unreachable.

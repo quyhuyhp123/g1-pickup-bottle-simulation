@@ -15,7 +15,8 @@ def cylinder_surface_distance(point, radius, half_height):
 
 class PalmProximity:
     def __init__(self, model):
-        mesh = model.mesh("right_hand_palm_link").id
+        native = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_MESH, "right_base_link") >= 0
+        mesh = model.mesh("right_base_link" if native else "right_hand_palm_link").id
         self.palm = next(i for i in range(model.ngeom)
             if model.geom_type[i] == mujoco.mjtGeom.mjGEOM_MESH
             and model.geom_dataid[i] == mesh and (model.geom_contype[i] or model.geom_conaffinity[i]))

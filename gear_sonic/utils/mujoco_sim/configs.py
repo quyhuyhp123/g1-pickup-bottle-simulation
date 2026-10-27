@@ -331,6 +331,9 @@ class BaseConfig(ArgsConfigTemplate):
 
 @dataclass
 class SimLoopConfig(BaseConfig):
+    record_dir: str = ""
+    record_prompt: str = "grab the bottle"
+    record_fps: int = 10
     """Config for running the simulation loop."""
 
     mp_start_method: str = "spawn"
@@ -353,6 +356,12 @@ class SimLoopConfig(BaseConfig):
 
     assisted_pickup: bool = False
     """Correct right-arm pickup with RGB-D bottle target; requires simulation controls and detector."""
+
+    policy_control: bool = False
+    """GR00T/SONIC body and policy-timed Dex3 hands, without local grasp overrides."""
+
+    native_inspire: bool = False
+    """Native six-motor Inspire FTP hands, fixed-base assisted simulation only."""
 
     fixed_pickup_base: bool = False
     """Anchor pelvis and hold unused joints during the assisted table task; simulation only."""

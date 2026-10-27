@@ -207,6 +207,73 @@ class GroundStandbyTest(unittest.TestCase):
         controls.poll()
         self.assertEqual(controls.phase, 'idle')
 
+    def test_policy_start_keeps_pose_locked_until_new_action_then_blends(self):
+        from unittest.mock import Mock
+        env = self.env
+        env.config['POLICY_CONTROL'] = True
+        env.unitree_bridge.low_cmd_received = True
+        c = InteractiveSimulationControls.__new__(InteractiveSimulationControls)
+        c.env = env
+        c.channel = SimpleNamespace(send=Mock(return_value=True), receive=lambda: None)
+        c.controller_state = SimpleNamespace(get_msg=lambda: {'fresh': True})
+        c.controller_seen = time.monotonic()
+        c.client_seen = time.monotonic()
+        c.client_status = {'paused': True, 'actions_published': 0}
+        c.pending = None
+        c.serial = 0
+        c.phase = 'preparing'
+        c.phase_since = time.monotonic() - 3
+        c.panel = None
+        c.error = ''
+        c.detector_socket = None
+        c.last_ui_update = time.monotonic()
+        c.check_hand_alignment = Mock()
+        c.snapshot = Mock(return_value={})
+        c.poll()
+        self.assertEqual(c.phase, 'starting')
+        self.assertTrue(env.standby)
+        self.assertIsNone(env._control_transition_started)
+        self.assertEqual(c.pending[0]['command'], 'start')
+        c.pending = None
+        c.phase = 'observing'
+        c.phase_since = time.monotonic()
+        c._first_action_count = 0
+        c.client_status['paused'] = False
+        c.poll()
+        self.assertTrue(env.standby)
+        c.client_status['actions_published'] = 1
+        c.poll()
+        self.assertFalse(env.standby)
+        self.assertEqual(c.phase, 'grounded')
+        self.assertIsNotNone(env._control_transition_started)
+        env._control_transition_started = None
+        c.poll()
+        self.assertEqual(c.phase, 'running')
+        self.assertFalse(env.elastic_band.enable)
+
+    def test_policy_missing_action_timeout_keeps_all_joints_locked(self):
+        from unittest.mock import Mock
+        env = self.env
+        env.config['POLICY_CONTROL'] = True
+        c = InteractiveSimulationControls.__new__(InteractiveSimulationControls)
+        c.env = env
+        c.channel = SimpleNamespace(receive=lambda: None)
+        c.controller_state = SimpleNamespace(get_msg=lambda: None)
+        c.client_status = {'paused': False, 'actions_published': 0}
+        c._first_action_count = 0
+        c.pending = None
+        c.phase = 'observing'
+        c.phase_since = time.monotonic() - 16
+        c.panel = None
+        c.detector_socket = None
+        c.last_ui_update = time.monotonic()
+        c.check_hand_alignment = Mock()
+        c.snapshot = Mock(return_value={})
+        c.poll()
+        self.assertEqual(c.phase, 'paused')
+        self.assertTrue(env.standby)
+        self.assertIsNone(env._control_transition_started)
+
 
 if __name__ == "__main__":
     unittest.main()

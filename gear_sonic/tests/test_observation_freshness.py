@@ -44,6 +44,23 @@ class ObservationFreshnessTest(unittest.TestCase):
         np.testing.assert_array_equal(obs["state"]["projected_gravity"], [[[0., 0., -1.]]])
         self.assertEqual(obs["language"]["annotation.human.task_description"], [["grab the bottle"]])
 
+    def test_native_inspire_frame_projects_six_motors_without_index_error(self):
+        robot = instantiate_g1_robot_model(waist_location="lower_and_upper_body")
+        class Camera:
+            def read(self):
+                return {"capture_monotonic": time.monotonic(),
+                        "images": {"ego_view": np.zeros((480, 640, 3), dtype=np.uint8)},
+                        "timestamps": {"ego_view": time.time()},
+                        "robot_state": {"body_q": [0.] * 29,
+                            "left_hand_q": [1., 0., 0., 0., 0., 0.],
+                            "right_hand_q": [1., .4, .85, .85, .85, .85],
+                            "hand_state_format": "inspire_ftp_motor_radians",
+                            "base_quat": [1., 0., 0., 0.]}}
+        observation = prepare_observation_from_sensors(Camera(), None, robot, "grab the bottle")
+        self.assertIsNotNone(observation)
+        self.assertTrue(np.isfinite(observation['q']).all())
+        self.assertEqual(observation['state']['right_hand'].shape[-1], 7)
+
     def test_inflight_result_keeps_pre_reset_request_boundary(self):
         requests, results = queue.Queue(), queue.Queue()
         stop, busy, entered, release = (threading.Event() for _ in range(4))
@@ -60,14 +77,36 @@ class ObservationFreshnessTest(unittest.TestCase):
             self.assertTrue(entered.wait(timeout=2))
             reset_boundary = time.monotonic()
             release.set()
-            _, result_boundary = results.get(timeout=2)
+            _, result_boundary, observation_at = results.get(timeout=2)
             self.assertEqual(result_boundary, requested_at)
+            self.assertEqual(observation_at, requested_at)
             self.assertLess(result_boundary, reset_boundary)
         finally:
             stop.set()
             release.set()
             thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
+
+    def test_capture_clock_is_local_and_preserved_separately_from_reset_boundary(self):
+        requests, results = queue.Queue(), queue.Queue()
+        stop, busy = threading.Event(), threading.Event()
+        requested_at = time.monotonic()
+        captured_at = requested_at - .2
+        def infer(obs):
+            self.assertNotIn('_capture_monotonic', obs)
+            return {'action': True}
+        thread = threading.Thread(target=_inference_worker_loop,
+            args=(requests, results, stop, busy,
+                  lambda: {'_capture_monotonic': captured_at}, infer))
+        requests.put(requested_at)
+        thread.start()
+        try:
+            _, request, capture = results.get(timeout=2)
+            self.assertEqual(request, requested_at)
+            self.assertEqual(capture, captured_at)
+        finally:
+            stop.set()
+            thread.join(timeout=2)
 
 
 if __name__ == "__main__":

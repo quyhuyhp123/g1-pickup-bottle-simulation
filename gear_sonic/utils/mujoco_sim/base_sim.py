@@ -43,6 +43,8 @@ class DefaultEnv:
         offscreen: bool = False,
         enable_image_publish: bool = False,
     ):
+        from gear_sonic.utils.inference.policy_control import validate_policy_simulation
+        validate_policy_simulation(config)
         self.config = config
         self.env_name = env_name
         self.robot = Robot(self.config)
@@ -75,6 +77,7 @@ class DefaultEnv:
         self._preview_capture = 0.
         self._viewer_overlay_worker = None
 
+        self.native_inspire = self.config.get("NATIVE_INSPIRE", False)
         self.init_scene()
         self.assisted_pickup = None
         if self.config.get('ASSISTED_PICKUP', False):
@@ -96,6 +99,14 @@ class DefaultEnv:
         self.reach_diagnostic_writer = (DiagnosticWriter(
             Path(diagnostic_path).with_suffix(".jsonl"), latest_path=diagnostic_path
         ) if diagnostic_path else None)
+
+        if self.config.get('RECORD_DIR'):
+            from gear_sonic.utils.mujoco_sim.episode_recorder import EpisodeRecorder
+            self.episode_recorder = EpisodeRecorder(self.mj_model, self.config['RECORD_DIR'],
+                self.config['RECORD_PROMPT'], self.config['RECORD_FPS'])
+            print('[Recorder] Preparing camera before simulation start...', flush=True)
+            self.episode_recorder.prepare(self.mj_data)
+            print('[Recorder] Camera ready.', flush=True)
 
     def start_image_publish_subprocess(self, start_method: str = "spawn", camera_port: int = 5555):
         if self._viewer_overlay_worker is not None:
@@ -218,6 +229,11 @@ class DefaultEnv:
                 joint = self.mj_model.joint(f'{side}_shoulder_pitch_joint')
                 self.initial_qpos[int(joint.qposadr[0])] = pitch
             self.initial_qpos[int(self.mj_model.joint('left_elbow_joint').qposadr[0])] = .3
+            if self.native_inspire:
+                for side in ('left', 'right'):
+                    self.initial_qpos[self.mj_model.joint(side+'_shoulder_pitch_joint').qposadr[0]] = .35
+                    self.initial_qpos[self.mj_model.joint(side+'_elbow_joint').qposadr[0]] = -.7
+                    self.initial_qpos[self.mj_model.joint(side+'_thumb_1_joint').qposadr[0]] = 1.0
             self.mj_data.qpos[:] = self.initial_qpos
             mujoco.mj_forward(self.mj_model, self.mj_data)
 
@@ -314,6 +330,10 @@ class DefaultEnv:
             elif "right_hand" in name:
                 self.right_hand_index.append(i)
 
+        if self.native_inspire:
+            from gear_sonic.scripts.prepare_inspire_ftp_sim import HAND_NAMES
+            self.left_hand_index = [self.mj_model.joint('left_'+n+'_joint').id for n in HAND_NAMES]
+            self.right_hand_index = [self.mj_model.joint('right_'+n+'_joint').id for n in HAND_NAMES]
         assert len(self.body_joint_index) == self.robot.NUM_JOINTS
         assert len(self.left_hand_index) == self.robot.NUM_HAND_JOINTS
         assert len(self.right_hand_index) == self.robot.NUM_HAND_JOINTS
@@ -325,6 +345,14 @@ class DefaultEnv:
         self.left_hand_index = np.array(self.left_hand_index)
         self.right_hand_index = np.array(self.right_hand_index)
 
+        # Passive finger joints mean joint IDs are no longer actuator IDs.
+        self.joint_actuator = {int(j): i for i, j in enumerate(self.mj_model.actuator_trnid[:, 0])}
+        self.body_actuator = np.array([self.joint_actuator[int(j)] for j in self.body_joint_index])
+        self.left_hand_actuator = np.array([self.joint_actuator[int(j)] for j in self.left_hand_index])
+        self.right_hand_actuator = np.array([self.joint_actuator[int(j)] for j in self.right_hand_index])
+        if self.native_inspire:
+            self.torques = np.zeros(self.mj_model.nu)
+            self.torque_limit = self.mj_model.actuator_forcerange[:, 1].copy()
         if mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, "red_bottle") >= 0:
             from gear_sonic.utils.mujoco_sim.object_reset import BottlePlacement
             self.bottle_placement = BottlePlacement(self.mj_model, self.mj_data)
@@ -378,12 +406,12 @@ class DefaultEnv:
                         + self.unitree_bridge.low_cmd.motor_cmd[i].kp
                         * (
                             self.unitree_bridge.low_cmd.motor_cmd[i].q
-                            - self.mj_data.qpos[self.body_joint_index[i] + self.qpos_offset - 1]
+                            - self.mj_data.qpos[self.mj_model.jnt_qposadr[self.body_joint_index[i]]]
                         )
                         + self.unitree_bridge.low_cmd.motor_cmd[i].kd
                         * (
                             self.unitree_bridge.low_cmd.motor_cmd[i].dq
-                            - self.mj_data.qvel[self.body_joint_index[i] + self.qvel_offset - 1]
+                            - self.mj_data.qvel[self.mj_model.jnt_dofadr[self.body_joint_index[i]]]
                         )
                     )
         if (self.config.get("ARM_GRAVITY_COMPENSATION", False)
@@ -470,12 +498,12 @@ class DefaultEnv:
                     + self.unitree_bridge.left_hand_cmd.motor_cmd[i].kp
                     * (
                         self.unitree_bridge.left_hand_cmd.motor_cmd[i].q
-                        - self.mj_data.qpos[self.left_hand_index[i] + self.qpos_offset - 1]
+                        - self.mj_data.qpos[self.mj_model.jnt_qposadr[self.left_hand_index[i]]]
                     )
                     + self.unitree_bridge.left_hand_cmd.motor_cmd[i].kd
                     * (
                         self.unitree_bridge.left_hand_cmd.motor_cmd[i].dq
-                        - self.mj_data.qvel[self.left_hand_index[i] + self.qvel_offset - 1]
+                        - self.mj_data.qvel[self.mj_model.jnt_dofadr[self.left_hand_index[i]]]
                     )
                 )
                 right_hand_torques[i] = (
@@ -483,12 +511,12 @@ class DefaultEnv:
                     + self.unitree_bridge.right_hand_cmd.motor_cmd[i].kp
                     * (
                         self.unitree_bridge.right_hand_cmd.motor_cmd[i].q
-                        - self.mj_data.qpos[self.right_hand_index[i] + self.qpos_offset - 1]
+                        - self.mj_data.qpos[self.mj_model.jnt_qposadr[self.right_hand_index[i]]]
                     )
                     + self.unitree_bridge.right_hand_cmd.motor_cmd[i].kd
                     * (
                         self.unitree_bridge.right_hand_cmd.motor_cmd[i].dq
-                        - self.mj_data.qvel[self.right_hand_index[i] + self.qvel_offset - 1]
+                        - self.mj_data.qvel[self.mj_model.jnt_dofadr[self.right_hand_index[i]]]
                     )
                 )
         return np.concatenate((left_hand_torques, right_hand_torques))
@@ -533,19 +561,19 @@ class DefaultEnv:
         )
         obs["secondary_imu_vel"] = pose[7:13]
 
-        obs["body_q"] = self.mj_data.qpos[self.body_joint_index + 7 - 1]
-        obs["body_dq"] = self.mj_data.qvel[self.body_joint_index + 6 - 1]
-        obs["body_ddq"] = self.mj_data.qacc[self.body_joint_index + 6 - 1]
-        obs["body_tau_est"] = self.mj_data.actuator_force[self.body_joint_index - 1]
+        obs["body_q"] = self.mj_data.qpos[self.mj_model.jnt_qposadr[self.body_joint_index]]
+        obs["body_dq"] = self.mj_data.qvel[self.mj_model.jnt_dofadr[self.body_joint_index]]
+        obs["body_ddq"] = self.mj_data.qacc[self.mj_model.jnt_dofadr[self.body_joint_index]]
+        obs["body_tau_est"] = self.mj_data.actuator_force[self.body_actuator]
         if self.num_hand_dof > 0:
-            obs["left_hand_q"] = self.mj_data.qpos[self.left_hand_index + self.qpos_offset - 1]
-            obs["left_hand_dq"] = self.mj_data.qvel[self.left_hand_index + self.qvel_offset - 1]
-            obs["left_hand_ddq"] = self.mj_data.qacc[self.left_hand_index + self.qvel_offset - 1]
-            obs["left_hand_tau_est"] = self.mj_data.actuator_force[self.left_hand_index - 1]
-            obs["right_hand_q"] = self.mj_data.qpos[self.right_hand_index + self.qpos_offset - 1]
-            obs["right_hand_dq"] = self.mj_data.qvel[self.right_hand_index + self.qvel_offset - 1]
-            obs["right_hand_ddq"] = self.mj_data.qacc[self.right_hand_index + self.qvel_offset - 1]
-            obs["right_hand_tau_est"] = self.mj_data.actuator_force[self.right_hand_index - 1]
+            obs["left_hand_q"] = self.mj_data.qpos[self.mj_model.jnt_qposadr[self.left_hand_index]]
+            obs["left_hand_dq"] = self.mj_data.qvel[self.mj_model.jnt_dofadr[self.left_hand_index]]
+            obs["left_hand_ddq"] = self.mj_data.qacc[self.mj_model.jnt_dofadr[self.left_hand_index]]
+            obs["left_hand_tau_est"] = self.mj_data.actuator_force[self.left_hand_actuator]
+            obs["right_hand_q"] = self.mj_data.qpos[self.mj_model.jnt_qposadr[self.right_hand_index]]
+            obs["right_hand_dq"] = self.mj_data.qvel[self.mj_model.jnt_dofadr[self.right_hand_index]]
+            obs["right_hand_ddq"] = self.mj_data.qacc[self.mj_model.jnt_dofadr[self.right_hand_index]]
+            obs["right_hand_tau_est"] = self.mj_data.actuator_force[self.right_hand_actuator]
         obs["time"] = self.mj_data.time
         return obs
 
@@ -599,11 +627,11 @@ class DefaultEnv:
             hand_torques = 8. * (self.initial_qpos[qa] - self.mj_data.qpos[qa]) - .2 * self.mj_data.qvel[va] + self.mj_data.qfrc_bias[va]
         if self.assisted_pickup is not None and not self.standby:
             self.assisted_pickup.apply_torques(self.mj_data, body_torques, hand_torques, self.body_joint_index)
-        # -1: actuator array is 0-based while joint indices from the model are 1-based
-        self.torques[self.body_joint_index - 1] = body_torques
+        # Map active joints to motor slots; passive Inspire joints have no slot.
+        self.torques[self.body_actuator - (6 if self.config["FREE_BASE"] else 0)] = body_torques
         if self.num_hand_dof > 0:
-            self.torques[self.left_hand_index - 1] = hand_torques[: self.num_hand_dof]
-            self.torques[self.right_hand_index - 1] = hand_torques[self.num_hand_dof :]
+            self.torques[self.left_hand_actuator - (6 if self.config["FREE_BASE"] else 0)] = hand_torques[: self.num_hand_dof]
+            self.torques[self.right_hand_actuator - (6 if self.config["FREE_BASE"] else 0)] = hand_torques[self.num_hand_dof :]
 
         self.torques = np.clip(self.torques, -self.torque_limit, self.torque_limit)
 
@@ -612,6 +640,13 @@ class DefaultEnv:
             self.mj_data.ctrl = np.concatenate((np.zeros(6), self.torques))
         else:
             self.mj_data.ctrl = self.torques
+        if self.config.get('RECORD_DIR'):
+            from gear_sonic.utils.mujoco_sim.episode_recorder import EpisodeRecorder
+            if not hasattr(self, 'episode_recorder'):
+                self.episode_recorder = EpisodeRecorder(self.mj_model, self.config['RECORD_DIR'],
+                    self.config['RECORD_PROMPT'], self.config['RECORD_FPS'])
+            self.episode_recorder.capture(self.mj_data, not self.standby,
+                getattr(self, 'scene_changed_at', None), self.assisted_pickup)
         mujoco.mj_step(self.mj_model, self.mj_data)
         self.hold_initial_robot_pose()
 
@@ -811,11 +846,13 @@ class DefaultEnv:
                 # Pair proprioception with the image exposure, not with the
                 # later time at which rendering/network delivery completes.
                 state = {
-                    "body_q": self.mj_data.qpos[self.body_joint_index + self.qpos_offset - 1].tolist(),
-                    "left_hand_q": self.mj_data.qpos[self.left_hand_index + self.qpos_offset - 1].tolist(),
-                    "right_hand_q": self.mj_data.qpos[self.right_hand_index + self.qpos_offset - 1].tolist(),
+                    "body_q": self.mj_data.qpos[self.mj_model.jnt_qposadr[self.body_joint_index]].tolist(),
+                    "left_hand_q": self.mj_data.qpos[self.mj_model.jnt_qposadr[self.left_hand_index]].tolist(),
+                    "right_hand_q": self.mj_data.qpos[self.mj_model.jnt_qposadr[self.right_hand_index]].tolist(),
                     "base_quat": self.mj_data.qpos[3:7].tolist(),
                 }
+                if self.native_inspire:
+                    state['hand_state_format'] = 'inspire_ftp_motor_radians'
                 self.image_publish_process.submit(self.mj_data, robot_state=state)
             return {}
         render_caches = {}
@@ -881,6 +918,8 @@ class DefaultEnv:
         return self_collision
 
     def reset(self):
+        if getattr(self, 'episode_recorder', None) is not None:
+            self.episode_recorder.finish('robot_reset')
         self._control_transition_started = None
         if getattr(self, 'assisted_pickup', None) is not None:
             self.assisted_pickup.reset()
@@ -1034,6 +1073,8 @@ class BaseSimulator:
     def close(self):
         self._running = False
         try:
+            if getattr(self.sim_env, 'episode_recorder', None) is not None:
+                self.sim_env.episode_recorder.close()
             if getattr(self, "interactive_controls", None) is not None:
                 self.interactive_controls.close()
                 self.interactive_controls = None

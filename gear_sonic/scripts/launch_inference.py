@@ -89,11 +89,25 @@ class InferenceLaunchConfig:
     """CLI config for the all-in-one VLA inference tmux launcher."""
 
     # Deployment mode
+    record_dir: str = ""
+    """Raw assisted simulation episodes; empty disables recording."""
+    record_fps: int = 10
+    """Synchronized raw camera recording frequency in simulation time."""
+
     sim: bool = False
     """Run against MuJoCo sim instead of real robot."""
 
+    sim_finetuned_policy: bool = False
+    """Run the fine-tuned native Dex3 checkpoint through SONIC, with its fixed-base training profile and no RGB-D/IK."""
+
+    finetuned_model_path: str = "outputs/gr00t_g1_dex3_finetune_v1/checkpoint-best"
+    """Full local checkpoint for --sim-finetuned-policy. The launcher starts its own verified policy server."""
+
+    sim_policy_control: bool = False
+    """Strict GR00T -> SONIC baseline; selected automatically for simulation without explicit assistance."""
+
     sim_grasp_distance: float | None = None
-    """Grasp-region centre Y surface gap (m). Default: 0.02 in simulation with detector, otherwise 0. Set 0 for checkpoint-only hand control."""
+    """Optional proximity closure (m). Default 0: finger timing comes from the policy."""
 
     sim_grasp_x_tolerance: float = .005
     """World-X matching tolerance for grasp-region centre vs bottle centre (metres)."""
@@ -103,6 +117,9 @@ class InferenceLaunchConfig:
 
     sim_assisted_pickup: bool = False
     """Use RGB-D target correction for right-arm approach, physical grasp and lift; SONIC controls the body. Simulation only."""
+
+    sim_native_inspire: bool = False
+    """Native Inspire FTP hand model, requires assisted fixed-base simulation."""
 
     sim_fixed_base: bool = False
     """Anchor the simulated pelvis and hold unused joints for repeatable table pickup. Requires --sim-assisted-pickup."""
@@ -197,10 +214,42 @@ SESSION_NAME = "sonic_inference"
 
 
 def _resolve_sim_grasp_config(config: InferenceLaunchConfig):
+    if config.sim_finetuned_policy:
+        if (not config.sim or config.sim_assisted_pickup or config.sim_native_inspire
+                or config.sim_fixed_base or config.inspire_ftp_hands or config.sim_grasp_distance
+                or config.record_dir):
+            raise ValueError('--sim-finetuned-policy requires --sim with native Dex3 and no assisted/Inspire/proximity options')
+        config.sim_policy_control=False
+        config.sim_grasp_distance=0.
+        config.bottle_detection=False
+        config.data_exporter=False
+        return
+    if config.record_dir:
+        if not config.sim or not config.sim_assisted_pickup or not 0 < config.record_fps <= 60:
+            raise ValueError('--record-dir requires --sim --sim-assisted-pickup and record FPS in 1..60')
+        # C++ exporter labels precede simulation IK and must not be mistaken for expert labels.
+        config.data_exporter = False
     # Resolve after CLI parsing so --sim is known; hardware never inherits
     # a simulation-only hand override from the launcher's defaults.
     if config.sim_grasp_distance is None:
-        config.sim_grasp_distance = .02 if config.sim and config.bottle_detection else 0.
+        config.sim_grasp_distance = 0.
+    # A normal --sim launch must use learned actions, including the training
+    # hand convention. Legacy assistance remains an explicit opt-in.
+    if (config.sim and not config.sim_assisted_pickup and not config.sim_fixed_base
+            and not config.sim_native_inspire and not config.sim_grasp_distance):
+        config.sim_policy_control = True
+    if config.sim_policy_control:
+        if (not config.sim or config.sim_assisted_pickup or config.sim_fixed_base
+                or config.sim_native_inspire or config.sim_grasp_distance):
+            raise ValueError('--sim-policy-control requires --sim with Dex3 and no assisted/fixed-base/proximity options. '
+                             'Native CloudWalk-to-Inspire motor mapping is not yet verified.')
+        config.inspire_ftp_hands = True
+        # No detector process or depth-derived target is needed by this policy.
+        config.bottle_detection = False
+        if not config.action_diagnostic_path:
+            config.action_diagnostic_path = 'outputs/gr00t_policy/actions.jsonl'
+        if not config.reach_diagnostic_path:
+            config.reach_diagnostic_path = 'outputs/gr00t_policy/reach.json'
     if config.sim_assisted_pickup:
         # The assisted controller owns right-hand closure throughout its motion.
         config.sim_grasp_distance = 0.
@@ -211,6 +260,8 @@ def _check_prerequisites(config: InferenceLaunchConfig):
     errors = []
     if config.sim_bottle_xy is not None and not config.sim:
         errors.append("--sim-bottle-xy requires --sim")
+    if config.sim_native_inspire and not (config.sim and config.sim_assisted_pickup and config.sim_fixed_base):
+        errors.append('--sim-native-inspire requires --sim --sim-assisted-pickup --sim-fixed-base')
     if config.sim_fixed_base and (not config.sim or not config.sim_assisted_pickup):
         errors.append("--sim-fixed-base requires --sim --sim-assisted-pickup")
     if config.sim_assisted_pickup and (not config.sim or not config.bottle_detection):
@@ -228,6 +279,9 @@ def _check_prerequisites(config: InferenceLaunchConfig):
         errors.append("tmux is not installed. Install with: sudo apt install tmux")
 
     repo_root = Path(__file__).resolve().parent.parent.parent
+
+    if config.sim_native_inspire and not (repo_root / 'models/g1_inspire_ftp/g1_inspire_ftp_pickup.xml').is_file():
+        errors.append('Build native hands first: .venv_sim/bin/python gear_sonic/scripts/prepare_inspire_ftp_sim.py')
 
     if not (repo_root / ".venv_inference" / "bin" / "activate").exists():
         errors.append(
@@ -343,6 +397,14 @@ def main(config: InferenceLaunchConfig):
     repo_root = Path(__file__).resolve().parent.parent.parent
 
     _resolve_sim_grasp_config(config)
+    if config.sim_finetuned_policy:
+        model_path=Path(config.finetuned_model_path)
+        if not model_path.is_absolute():model_path=repo_root/model_path
+        command=[str(repo_root/'.venv_sim/bin/python'),str(repo_root/'gear_sonic/scripts/run_finetuned_sim.py'),
+                 '--model-path',str(model_path),'--policy-host',config.policy_host,
+                 '--policy-port',str(5551 if config.policy_port==5550 else config.policy_port),'--prompt',config.prompt]
+        if config.sim_bottle_xy is not None:command+=['--bottle-xy',*[str(v) for v in config.sim_bottle_xy]]
+        os.execv(command[0],command)
     _check_prerequisites(config)
     _kill_existing_session()
 
@@ -352,6 +414,11 @@ def main(config: InferenceLaunchConfig):
     print("  SONIC VLA Inference Launcher")
     print("=" * 60)
     print(f"  Mode:            {'Simulation' if config.sim else 'Real Robot'}")
+    if config.sim_policy_control:
+        print('  Control owner:   GR00T v10 motion_token -> SONIC; hand timing from GR00T (Dex3 grip adapter)')
+        print('  Overrides:       IK OFF | pelvis fixture OFF | proximity closure OFF')
+        print('  Perception:      GR00T RGB + prompt + state; YOLO OFF; checkpoint emits no object XYZ')
+        print('  Arm tracking:    PD bias feedforward may support SONIC targets; it never changes joint targets')
     print(f"  PolicyServer:    {config.policy_host}:{config.policy_port}")
     print(f"  Embodiment:      {config.embodiment_tag}")
     print(f"  Prompt:          {config.prompt}")
@@ -363,6 +430,9 @@ def main(config: InferenceLaunchConfig):
         print(f"  Hand closure:    grasp-region centre | X +/- {config.sim_grasp_x_tolerance * 100:.1f} cm | "
               f"Y surface gap <= {config.sim_grasp_distance * 100:.1f} cm")
     if config.sim:
+        print(f"  Hand model:      {'Native Inspire FTP (six motors per hand)' if config.sim_native_inspire else 'Dex3'}")
+        if config.sim_native_inspire:
+            print("  Policy state:    approximate Dex3-compatible projection; native hand motion owned by assisted controller")
         print(f"  Arm feedforward: {'ON' if config.sim_arm_gravity_compensation else 'OFF'} (MuJoCo bias)")
         if config.sim_assisted_pickup:
             print("  Pickup:          RGB-D waist/right-arm correction; SONIC standing token")
@@ -391,6 +461,13 @@ def main(config: InferenceLaunchConfig):
             f"--enable-image-publish --enable-offscreen "
             f"--camera-port {config.camera_port}"
         )
+        if config.record_dir:
+            import shlex
+            if not config.sim_assisted_pickup:
+                raise ValueError('Recording currently requires --sim-assisted-pickup')
+            sim_cmd += (' --record-dir ' + shlex.quote(str((repo_root / config.record_dir).resolve()))
+                        + ' --record-prompt ' + shlex.quote(config.prompt)
+                        + f' --record-fps {config.record_fps}')
         if config.reach_diagnostic_path:
             import shlex
             sim_cmd += " --reach-diagnostic-path " + shlex.quote(config.reach_diagnostic_path)
@@ -403,6 +480,10 @@ def main(config: InferenceLaunchConfig):
             sim_cmd += " --arm-gravity-compensation"
         if config.sim_assisted_pickup:
             sim_cmd += " --assisted-pickup"
+        if config.sim_native_inspire:
+            sim_cmd += " --native-inspire"
+        if config.sim_policy_control:
+            sim_cmd += " --policy-control"
         if config.sim_fixed_base:
             sim_cmd += " --fixed-pickup-base"
         if config.sim_bottle_xy is not None:
@@ -529,6 +610,8 @@ def main(config: InferenceLaunchConfig):
 
     if config.inspire_ftp_hands:
         inference_cmd += " --inspire-ftp-hands"
+    if config.sim_policy_control:
+        inference_cmd += " --sim-policy-control"
     if config.sim:
         inference_cmd += " --sim-control-port 5581"
     if config.sim_grasp_distance:

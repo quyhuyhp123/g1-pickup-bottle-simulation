@@ -75,6 +75,9 @@ class InferenceConfig:
     sim_control_port: int = 0
     """Enable simulation reset/start/status channel; 0 disables it for hardware."""
 
+    sim_policy_control: bool = False
+    """Strict GR00T-to-SONIC simulation profile; body tokens are forwarded unchanged."""
+
     sim_grasp_distance: float = 0.
     """Optional right-hand closure at grasp-region centre X alignment and Y surface gap (m)."""
 
@@ -267,6 +270,14 @@ def prepare_observation_from_sensors(
             print("[DEBUG] prepare_observation: waiting for state msg..", flush=True)
         return None
 
+    state_msg = dict(state_msg)
+    hand_format = state_msg.pop('hand_state_format', 'dex3_joint_radians')
+    if hand_format == 'inspire_ftp_motor_radians':
+        from gear_sonic.utils.mujoco_sim.inspire_hand import dex3_observation_from_inspire
+        for side in ('left', 'right'):
+            state_msg[side+'_hand_q'] = dex3_observation_from_inspire(state_msg[side+'_hand_q'], side)
+    elif hand_format != 'dex3_joint_radians':
+        raise ValueError(f'Unsupported hand observation format: {hand_format}')
     state_msg = {key: np.asarray(value).copy() for key, value in state_msg.items()}
 
     cam_img = camera_msg["images"]["ego_view"]
@@ -298,6 +309,10 @@ def prepare_observation_from_sensors(
     }
 
     observation = prepare_observation_for_eval(robot_model, observation)
+    # Local scheduling metadata only; never send this field to the policy.
+    # Only paired simulation frames share this process's monotonic clock.
+    if minimum_capture_monotonic is not None and camera_msg.get('robot_state') is not None:
+        observation['_capture_monotonic'] = camera_msg['capture_monotonic']
 
     # Projected gravity for Sonic latent embodiment
     assert "base_quat" in state_msg, "base_quat not found in state_msg"
@@ -368,17 +383,18 @@ def _inference_worker_loop(
                 # Keep the request boundary, so an in-flight result from before
                 # Reset cannot be accepted even if observation preparation ended later.
                 inference_start_time = requested_at
+                observation_at = observation.pop('_capture_monotonic', requested_at)
                 processed_action = inference_fn(observation)
 
                 if processed_action is not None:
                     try:
-                        result_queue.put_nowait((processed_action, inference_start_time))
+                        result_queue.put_nowait((processed_action, inference_start_time, observation_at))
                     except queue.Full:
                         try:
                             result_queue.get_nowait()
-                            result_queue.put_nowait((processed_action, inference_start_time))
+                            result_queue.put_nowait((processed_action, inference_start_time, observation_at))
                         except queue.Empty:
-                            result_queue.put_nowait((processed_action, inference_start_time))
+                            result_queue.put_nowait((processed_action, inference_start_time, observation_at))
             finally:
                 busy_event.clear()
         except Exception as e:
@@ -401,6 +417,10 @@ def _compute_closed_hand_joints(side: str) -> np.ndarray:
 
 
 def main(config: InferenceConfig):
+    if config.sim_policy_control:
+        if not config.sim_control_port or config.sim_stationary_body or config.sim_grasp_distance:
+            raise ValueError('Policy mode requires the simulation channel and forbids stationary-token/proximity overrides')
+        config.inspire_ftp_hands = True
     if config.sim_stationary_body and not config.sim_control_port:
         raise ValueError("Stationary body mode requires the simulation control channel")
     if not 0 <= config.sim_grasp_distance <= .1:
@@ -796,7 +816,10 @@ def main(config: InferenceConfig):
         class RecordingPolicy:
             def get_action(self, observation):
                 action, info = n1_policy.get_action(observation)
-                record_action("raw_chunk", action={k: np.asarray(v).tolist() for k, v in action.items()})
+                record_action("raw_chunk", action={k: np.asarray(v).tolist() for k, v in action.items()},
+                              input_state={k: np.asarray(v).tolist() for k, v in observation['state'].items()},
+                              image_shape=list(observation['video']['ego_view'].shape),
+                              image_timestamp=np.asarray(observation.get('timestamps')).tolist())
                 return action, info
         return run_policy_inference_and_process(RecordingPolicy(), obs, robot_model)
 
@@ -821,6 +844,8 @@ def main(config: InferenceConfig):
         daemon=True,
     )
     inference_worker_thread.start()
+    action_chunk_origin = 0.
+    last_policy_latency = 0.
 
     try:
         while True:
@@ -830,17 +855,29 @@ def main(config: InferenceConfig):
 
             # Consume result first so last_inference_time is fresh before trigger check
             try:
-                processed_action, inference_start_time = result_queue.get_nowait()
+                processed_action, inference_start_time, observation_at = result_queue.get_nowait()
                 if pause_loop or inference_start_time < accept_results_after:
                     continue
                 inference_delay = time.monotonic() - inference_start_time
+                last_policy_latency = inference_delay
                 action_chunk_index = calculate_latency_compensated_index(
                     inference_delay, config.action_publish_rate, config.action_horizon,
                     has_previous_chunk=cached_action_chunk is not None,
                 )
+                if config.sim_policy_control:
+                    from gear_sonic.utils.inference.policy_control import policy_step_at
+                    received_at = time.monotonic()
+                    # First plan starts at zero while the robot was holding;
+                    # later plans refer to the state paired with the RGB frame.
+                    action_chunk_origin = observation_at if cached_action_chunk is not None else received_at
+                    action_chunk_index = policy_step_at(received_at, action_chunk_origin,
+                                                       config.action_publish_rate, config.action_horizon)
                 cached_action_chunk = processed_action
                 chunk_id += 1
-                record_action("chunk_selected", chunk_id=chunk_id, start_index=action_chunk_index, latency=inference_delay)
+                record_action("chunk_selected", chunk_id=chunk_id, start_index=action_chunk_index, latency=inference_delay,
+                              observation_age_s=time.monotonic() - observation_at,
+                              playback_clock='paired_capture' if config.sim_policy_control else 'publish_iterations',
+                              action={k: np.asarray(v).tolist() for k, v in (processed_action or {}).items()})
                 last_inference_time = time.monotonic()
                 print_green(
                     f'New action chunk (prompt: "{language_prompt_ref[0]}", '
@@ -856,6 +893,11 @@ def main(config: InferenceConfig):
                 time_since_last_inference=(time.monotonic() - last_inference_time),
                 inference_interval=inference_interval,
             )
+            if config.sim_policy_control and cached_action_chunk is not None:
+                from gear_sonic.utils.inference.policy_control import policy_chunk_needs_refresh
+                should_start = should_start or policy_chunk_needs_refresh(
+                    time.monotonic(), action_chunk_origin, config.action_publish_rate,
+                    config.action_horizon, last_policy_latency)
 
             if should_start and not pause_loop and not worker_is_busy:
                 try:
@@ -897,39 +939,23 @@ def main(config: InferenceConfig):
                 if processed_action is None or not processed_action:
                     print("[DEBUG] processed_action is None or empty, skipping", flush=True)
                 else:
-                    motion_token = np.asarray(
-                        get_action_field(processed_action, "motion_token"),
-                        dtype=np.float32,
-                    )
-                    left_hand_joints = np.asarray(
-                        get_action_field(processed_action, "left_hand_joints"),
-                        dtype=np.float32,
-                    )
-                    right_hand_joints = np.asarray(
-                        get_action_field(processed_action, "right_hand_joints"),
-                        dtype=np.float32,
-                    )
-
-                    # Action arrays arrive as (B, T, D) from the model.
-                    # Squeeze batch dim to get (T, D), then index by time step.
-                    if motion_token.ndim == 3:
-                        motion_token = motion_token[0]
-                    if left_hand_joints.ndim == 3:
-                        left_hand_joints = left_hand_joints[0]
-                    if right_hand_joints.ndim == 3:
-                        right_hand_joints = right_hand_joints[0]
-
-                    horizon = motion_token.shape[0] if motion_token.ndim == 2 else 1
-                    current_idx = min(action_chunk_index, horizon - 1)
-
-                    if motion_token.ndim == 2:
-                        motion_token = motion_token[current_idx]
-                    if left_hand_joints.ndim == 2:
-                        left_hand_joints = left_hand_joints[current_idx]
-                    if right_hand_joints.ndim == 2:
-                        right_hand_joints = right_hand_joints[current_idx]
+                    from gear_sonic.utils.inference.policy_control import policy_action_step
+                    if config.sim_policy_control:
+                        action_chunk_index = policy_step_at(time.monotonic(), action_chunk_origin,
+                                                           config.action_publish_rate, config.action_horizon)
+                    try:
+                        motion_token, left_hand_joints, right_hand_joints, current_idx = policy_action_step(
+                            processed_action, action_chunk_index)
+                    except ValueError as error:
+                        pause_loop = True
+                        clear_policy_actions()
+                        sensor_status.update(input_ready=False, error=str(error))
+                        record_action('automatic_pause', reason='invalid_policy_action', error=str(error))
+                        continue
 
                     raw_right_hand = right_hand_joints.copy()
+                    raw_left_hand = left_hand_joints.copy()
+                    raw_motion_token = motion_token.copy()
                     if config.sim_stationary_body:
                         motion_token = np.asarray(LATENT_INITIAL_MOTION_TOKEN, dtype=np.float32).reshape(64).copy()
                     if config.inspire_ftp_hands:
@@ -955,6 +981,8 @@ def main(config: InferenceConfig):
                         "frame": int(frame_index[0]), "chunk": chunk_id, "index": current_idx,
                         "output": "motion_token + hand joints (no XYZ target)",
                         "body_source": "SONIC standing token" if config.sim_stationary_body else "GR00T",
+                        "motion_token_changed": not np.array_equal(raw_motion_token, motion_token),
+                        "hand_adapter": "CloudWalk grip intent -> Dex3 (experimental)" if config.inspire_ftp_hands else "none",
                         "right_grip": float(np.clip(raw_right_hand[:5].mean(), 0., 1.))
                             if config.inspire_ftp_hands else None,
                         "published_monotonic": time.monotonic(),
@@ -967,6 +995,10 @@ def main(config: InferenceConfig):
                     record_action("published", chunk_id=chunk_id, index=current_idx, frame=int(frame_index[0]),
                                   right_hand=right_hand_joints.tolist(), left_hand=left_hand_joints.tolist(),
                                   motion_token=motion_token.tolist(), closure_fraction=closure_fraction,
+                                  raw_motion_token=raw_motion_token.tolist(),
+                                  raw_left_hand=raw_left_hand.tolist(), raw_right_hand=raw_right_hand.tolist(),
+                                  body_source=sensor_status['policy_action']['body_source'],
+                                  hand_adapter=sensor_status['policy_action']['hand_adapter'],
                                   hand_source=sensor_status["policy_action"]["hand_source"])
                     last_sent_motion_token = motion_token.copy()
                     if zmq_frame_counter % 50 == 0:

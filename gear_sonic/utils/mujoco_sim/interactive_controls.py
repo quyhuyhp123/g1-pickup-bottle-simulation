@@ -198,20 +198,45 @@ class InteractiveSimulationControls:
         if self.phase == "preparing" and self.pending is None:
             if (now - self.controller_seen < .5 and now - self.phase_since >= 2.
                     and getattr(self.env.unitree_bridge, 'low_cmd_received', False)):
-                self.env.begin_control_transition()
-                self.phase = "grounded"
-                self.phase_since = now
+                if self.env.config.get('POLICY_CONTROL', False):
+                    # Keep all robot qpos/qvel locked while VLA prepares its
+                    # first action. Do not execute SONIC's initial token first.
+                    if self.request('start'):
+                        self.phase = 'starting'
+                        self.phase_since = now
+                else:
+                    self.env.begin_control_transition()
+                    self.phase = "grounded"
+                    self.phase_since = now
             elif now - self.phase_since > 15:
                 self.error = "SONIC not ready. Check C++ deploy (Init Done / LowState)."
         elif self.phase == "grounded" and self.env._control_transition_started is None:
-            if now - self.controller_seen < .5 and self.request("start"):
+            if self.env.config.get('POLICY_CONTROL', False):
+                if now - self.controller_seen < .5 and not self.client_status.get('paused', True):
+                    self.env.release_ground_support()
+                    self.phase = 'running'
+                else:
+                    self.env.standby = True
+                    self.phase = 'paused'
+                    self.error = 'Controller unavailable during startup. Reset to retry.'
+            elif now - self.controller_seen < .5 and self.request("start"):
                 self.env.release_ground_support()
                 self.phase = "starting"
         elif self.phase == "observing":
-            if self.client_status.get("actions_published", 0) > self._first_action_count:
-                self.phase = "running"
+            if (not self.client_status.get('paused', True)
+                    and self.client_status.get("actions_published", 0) > self._first_action_count):
+                if self.env.config.get('POLICY_CONTROL', False):
+                    if now - self.controller_seen < .5:
+                        self.env.begin_control_transition()
+                        self.phase = 'grounded'
+                        self.phase_since = now
+                else:
+                    self.phase = "running"
             elif self.client_status.get("paused", False) and now - self.phase_since > .3:
                 self.phase = "paused"
+            elif self.env.config.get('POLICY_CONTROL', False) and now - self.phase_since > 15.:
+                self.phase = 'paused'
+                self.error = 'No fresh policy action; robot remains locked. Reset to retry.'
         elif self.phase == "running" and self.client_status.get("paused", False):
             self.phase = "paused"
 
@@ -263,6 +288,9 @@ class InteractiveSimulationControls:
 
     def snapshot(self):
         snapshot = self.env.coordinate_snapshot()
+        policy_mode = self.env.config.get('POLICY_CONTROL', False)
+        snapshot['control_owner'] = ('GR00T motion token -> SONIC; policy-timed Dex3 grip adapter'
+                                     if policy_mode else 'See body/hand source below')
         snapshot.update(self.env.command_coordinate_snapshot())
         from gear_sonic.utils.perception.bottle_detector import current_detection
         detection = current_detection(self.detector_result, self.env.scene_changed_at) if self.detector_socket else {"status": "disabled"}
@@ -276,6 +304,9 @@ class InteractiveSimulationControls:
             "running": "GR00T is controlling the robot. Click Reset to repeat.",
             "paused": "Paused. Click Reset to return to the initial position.",
         }
+        if policy_mode:
+            labels['starting'] = 'Robot locked. Requesting fresh policy input...'
+            labels['observing'] = 'Robot locked. Waiting for the first GR00T action...'
         snapshot.update(
             hand_alignment=getattr(self, "grasp_sample", {}),
             grasp_threshold_m=self.env.config.get("SIM_GRASP_DISTANCE", 0.),
@@ -320,6 +351,11 @@ class InteractiveSimulationControls:
         pickup = getattr(self.env, 'assisted_pickup', None)
         snapshot['can_lower'] = bool(pickup is not None and pickup.active
             and pickup.stage == 'success' and self.phase == 'running' and self.pending is None)
+        if policy_mode:
+            snapshot['inference'] += ('\nExecuted body: GR00T -> SONIC. No RGB-D/IK or proximity override.'
+                                      '\nHands: policy grip timing -> experimental Dex3 adapter.'
+                                      '\nLower/Place belongs to the assisted controller and is disabled here.')
+            snapshot['grasp_status'] = 'GR00T finger timing (Dex3 grip adapter); 2 cm gate OFF'
         if pickup is not None:
             snapshot['assisted_pickup'] = pickup.snapshot()
             snapshot['grasp_status'] = 'Assisted RGB-D pickup: ' + pickup.stage
